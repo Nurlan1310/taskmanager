@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Задача: {{ task.title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+  <div class="card shadow-sm p-4">
+    <h3 class="mb-3">{{ task.title }}</h3>
+
+    <!-- Мероприятие -->
+    <p><strong>Мероприятие:</strong>
+      {% if task.card %}
+        <a href="{% url 'card_detail' task.card.id %}">{{ task.card.title }}</a>
+      {% else %}
+        — не привязано —
+      {% endif %}
+    </p>
+
+    <!-- Инициатор -->
+    <p><strong>Инициатор:</strong>
+      {% if task.created_by %}
+        {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
+        {% if task.created_by.position %}
+          ({{ task.created_by.position }})
+        {% endif %}
+      {% else %}
+        — не указан —
+      {% endif %}
+    </p>
+
+    <!-- Кому назначено -->
+    <p><strong>Назначено:</strong>
+      {% if task.assigned_employee %}
+        {{ task.assigned_employee.user.last_name }} {{ task.assigned_employee.user.first_name }}
+        {% if task.assigned_employee.position %}
+          ({{ task.assigned_employee.position }})
+        {% endif %}
+      {% elif task.assigned_department %}
+        {{ task.assigned_department.name }}
+      {% elif task.recipients.all %}
+        {% for r in task.recipients.all %}
+          {{ r.user.last_name }} {{ r.user.first_name }}
+          {% if r.position %} ({{ r.position }}){% endif %}
+          {% if not forloop.last %}, {% endif %}
+        {% empty %}
+          — не указано —
+        {% endfor %}
+      {% else %}
+        — не указано —
+      {% endif %}
+    </p>
+
+    <p><strong>Дата создания:</strong> {{ task.created_at|date:"d.m.Y H:i" }}</p>
+
+    <p><strong>Срок исполнения:</strong>
+      {% if task.due_date %}
+        {{ task.due_date|date:"d.m.Y" }}
+      {% else %}
+        — не указан —
+      {% endif %}
+    </p>
+
+    <p><strong>Статус:</strong>
+      {% if task.status == "done" %}
+        ✅ Выполнено
+      {% elif task.status == "in_progress" %}
+        🟡 В работе
+      {% elif task.status == "under_review" %}
+        🔵 На рассмотрении
+      {% elif task.status == "sent_for_review" %}
+        🟣 Отправлена на согласование  
+      {% elif task.status == "new" %}
+        ⚫ Новое
+      {% elif task.status == "rejected" %}
+        🔴 Отклонена
+      {% else %}
+        🟤&&&
+      {% endif %}
+    </p>
+
+    <hr>
+
+    <h5>Описание задачи</h5>
+    <p>{{ task.description|linebreaks }}</p>
+
+    {% if task.google_drive_link %}
+      <p><strong>Google Диск:</strong>
+        <a href="{{ task.google_drive_link }}" target="_blank">
+          {{ task.google_drive_link }}
+        </a>
+      </p>
+    {% endif %}
+
+    {% if task.attachment %}
+      <p><strong>Файл:</strong>
+        <a href="{{ task.attachment.url }}" download>📎 {{ task.attachment.name }}</a>
+      </p>
+    {% endif %}
+
+    <hr>
+
+    {% if user.employee == task.assigned_employee and task.status == "new" or task.status == "rejected" or task.status == "sent_for_review" %}
+      <form action="{% url 'take_task' task.id %}" method="post" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-warning">🟡 Взять в работу</button>
+      </form>
+    {% endif %}
+
+    {% if user.employee == task.assigned_employee and task.status == "in_progress" and task.task_type == "regular" %}
+      <a href="{% url 'task_execute' task.id %}" class="btn btn-success">✅ Исполнить</a>
+    {% endif %}
+
+
+    {% if user.employee == task.assigned_employee and task.task_type == "approval" %}
+      <!-- <a href="{% url 'approve_plan' task.id %}" class="btn btn-success btn-sm">✅ Утвердить</a>
+      <a href="{% url 'reject_plan' task.id %}" class="btn btn-danger btn-sm">❌ Вернуть на доработку</a> -->
+      <p><strong>Исправить</strong>
+    {% endif %}
+
+    {% if user.employee == task.assigned_employee and task.task_type == "review" and task.status == "in_progress" %}
+      <a href="{% url 'task_review' task.id %}" class="btn btn-primary mt-2">
+        🔍 Проверить выполнение
+      </a>
+    {% endif %}
+
+    <hr>
+
+    {% if task.status == "new" and task.task_type == "regular" and task.assigned_employee == request.user.employee %}
+      <a href="#" class="btn btn-outline-primary mt-2" data-bs-toggle="modal" data-bs-target="#delegateModal">
+        🔁 Направить
+      </a>
+    {% endif %}
+
+    <a href="{% url 'task_list' %}" class="btn btn-secondary">⬅ Назад</a>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal fade" id="delegateModal" tabindex="-1" aria-labelledby="delegateModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <form action="{% url 'delegate_task' task.id %}" method="post" class="modal-content">
+      {% csrf_token %}
+      <div class="modal-header">
+        <h5 class="modal-title" id="delegateModalLabel">Направить задачу</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="delegate_to" class="form-label fw-bold">Выберите сотрудника</label>
+          <select name="delegate_to" id="delegate_to" class="form-select" required>
+            {% for emp in available_employees %}
+              <option value="{{ emp.id }}">
+                {{ emp.user.last_name }} {{ emp.user.first_name }} ({{ emp.position }}, {{ emp.department.name }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="submit" class="btn btn-primary">Отправить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<hr>
+<h5>История действий</h5>
+<ul class="list-group mt-3">
+  {% for h in task.history.all %}
+    <li class="list-group-item">
+      <strong>{{ h.get_action_display }}</strong>
+      {% if h.employee %}
+        — {{ h.employee.user.first_name }} {{ h.employee.user.last_name }} ({{ h.employee.position }})
+      {% endif %}
+      <span class="text-muted float-end">{{ h.timestamp|date:"d.m.Y H:i" }}</span>
+      {% if h.comment %}<br><small>{{ h.comment }}</small>{% endif %}
+    </li>
+  {% empty %}
+    <li class="list-group-item text-muted">История пока пуста</li>
+  {% endfor %}
+</ul>
+
+{% endblock %}

@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% load widget_tweaks %}
+{% load static %}
+
+{% block title %}Создать задачу{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="card shadow-lg border-0">
+    <div class="card-body p-4">
+      <h4 class="fw-bold text-center mb-4">📝 Создание новой задачи</h4>
+
+      {% if card %}
+      <div class="alert alert-info mb-4">
+        <strong>Карточка мероприятия:</strong>
+        <a href="{% url 'card_detail' card.id %}" class="fw-semibold text-decoration-none">
+          {{ card.title }}
+        </a>
+      </div>
+      {% endif %}
+
+      <form method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+        {% if form.errors %}
+        <div class="alert alert-danger">
+          <strong>Проверьте поля формы:</strong>
+          <ul class="mb-0">
+            {% for field, errors in form.errors.items %}
+            <li><strong>{{ field|capfirst }}:</strong> {{ errors|join:", " }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Название задачи <span class="text-danger">*</span></label>
+          {% render_field form.title class="form-control" placeholder="Введите название..." %}
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Описание</label>
+          {% render_field form.description class="form-control" rows="3" placeholder="Краткое описание..." %}
+        </div>
+
+        <!-- Адресаты -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Адресаты <span class="text-danger">*</span></label>
+          <div id="recipients-list" class="d-flex flex-wrap gap-2 mb-2"></div>
+          <button type="button" class="btn btn-outline-primary btn-sm" id="add-recipient-btn">
+            ➕ Добавить адресата
+          </button>
+          <div id="recipients-hidden-container"></div>
+        </div>
+
+        <!-- Срок выполнения -->
+        <div class="mb-3">
+        <label class="form-label fw-semibold">Срок выполнения</label>
+        {% render_field form.due_date class="form-control" type="date" %}
+        </div>
+
+        <!-- Ссылка на Google Диск -->
+        <div class="mb-3">
+        <label class="form-label fw-semibold">Ссылка на Google Диск</label>
+        {% render_field form.google_drive_link class="form-control" placeholder="https://drive.google.com/..." %}
+        </div>
+
+        <!-- Вложение -->
+        <div class="mb-3">
+        <label class="form-label fw-semibold">Вложение (файл)</label>
+        {% render_field form.attachment class="form-control" %}
+        </div>
+
+
+        <div class="text-center mt-4">
+          <button type="submit" class="btn btn-success px-4">💾 Создать задачу</button>
+          <a href="{% url 'task_list' %}" class="btn btn-outline-secondary ms-2">Назад</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное окно -->
+<div class="modal fade" id="searchModal" tabindex="-1" aria-labelledby="searchModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="searchModalLabel">Выберите сотрудника</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="searchInput" class="form-control mb-3" placeholder="Поиск...">
+        <ul class="list-group" id="searchResults"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const addBtn = document.getElementById("add-recipient-btn");
+  const recipientsList = document.getElementById("recipients-list");
+  const hiddenContainer = document.getElementById("recipients-hidden-container");
+  const searchInput = document.getElementById("searchInput");
+  const searchResults = document.getElementById("searchResults");
+  const modalEl = document.getElementById("searchModal");
+
+  console.log("✅ JS загружен");
+
+  // 🔹 Проверим employees_json
+  const employees = {{ employees_json|safe }};
+  console.log("👥 Список сотрудников:", employees);
+
+  if (!window.bootstrap) {
+    console.error("❌ Bootstrap JS не подключен!");
+  }
+
+  const modal = new bootstrap.Modal(modalEl);
+
+  addBtn.addEventListener("click", () => {
+    console.log("Клик по 'Добавить адресата'");
+    searchInput.value = "";
+    renderSearchResults(employees);
+    modal.show();
+  });
+
+  function renderSearchResults(list) {
+    searchResults.innerHTML = list.map(x => `
+      <li class="list-group-item list-group-item-action" data-id="${x.id}" data-name="${x.name}">
+        ${x.name}
+      </li>
+    `).join("");
+  }
+
+  searchInput.addEventListener("input", e => {
+    const q = e.target.value.trim().toLowerCase();
+    const filtered = employees.filter(x => x.name.toLowerCase().includes(q));
+    renderSearchResults(filtered);
+  });
+
+  searchResults.addEventListener("click", e => {
+    const li = e.target.closest("li");
+    if (!li) return;
+    addRecipient(li.dataset.id, li.dataset.name);
+    modal.hide();
+  });
+
+  function addRecipient(id, name) {
+    if ([...recipientsList.querySelectorAll("[data-id]")].some(el => el.dataset.id === id)) return;
+
+    const badge = document.createElement("div");
+    badge.className = "badge bg-primary p-2 d-flex align-items-center gap-2";
+    badge.dataset.id = id;
+    badge.innerHTML = `<span class="me-2">${name}</span>
+      <button type="button" class="btn-close btn-close-white btn-sm" aria-label="Удалить"></button>`;
+    recipientsList.appendChild(badge);
+
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = "recipients";
+    hidden.value = id;
+    hidden.dataset.for = id;
+    hiddenContainer.appendChild(hidden);
+
+    badge.querySelector("button").addEventListener("click", () => {
+      hidden.remove();
+      badge.remove();
+    });
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Согласование выполнения задачи{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="card shadow-lg border-0">
+    <div class="card-body p-4">
+      <h4 class="fw-bold mb-3 text-center">🧾 Проверка выполнения задачи</h4>
+
+      {% if base_task %}
+        <h5 class="mb-2">{{ base_task.title }}</h5>
+        <p class="text-muted">{{ base_task.description }}</p>
+        <hr>
+
+        <p><strong>Исполнитель:</strong>
+          {{ base_task.assigned_employee.user.last_name }} {{ base_task.assigned_employee.user.first_name }}
+          {% if base_task.assigned_employee.position %}
+            ({{ base_task.assigned_employee.position }})
+          {% endif %}
+        </p>
+
+        <p><strong>Комментарий исполнителя:</strong></p>
+        {% if last_exec_comment %}
+          <div class="alert alert-secondary">{{ last_exec_comment }}</div>
+        {% else %}
+          <div class="alert alert-light text-muted">Нет комментария исполнителя</div>
+        {% endif %}
+
+        <hr>
+        <h6 class="fw-bold">📎 Вложения</h6>
+        {% if attachments %}
+          <ul class="list-group mb-3">
+            {% for att in attachments %}
+              {% if att.file %}
+                <li class="list-group-item">
+                  <a href="{{ att.file.url }}" target="_blank">📄 {{ att.file.name|cut:"tasks/execution_files/" }}</a>
+                  <span class="text-muted float-end">{{ att.uploaded_at|date:"d.m.Y H:i" }}</span>
+                </li>
+              {% elif att.link %}
+                <li class="list-group-item">
+                  🔗 <a href="{{ att.link }}" target="_blank">{{ att.link }}</a>
+                  <span class="text-muted float-end">{{ att.uploaded_at|date:"d.m.Y H:i" }}</span>
+                </li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-muted">Нет приложенных файлов или ссылок.</p>
+        {% endif %}
+
+        <hr>
+
+        {% comment %}
+          --- Логика отображения кнопок ---
+          - Если проверяющий ещё не начал — кнопка "Взять в работу"
+          - Если взял в работу — форма с "Утвердить" и "Вернуть на доработку"
+          - Если статус уже done — просто просмотр без кнопок
+        {% endcomment %}
+
+        {% if review_task.status == "new" %}
+          <div class="text-center">
+            <a href="{% url 'task_review_take' review_task.id %}" class="btn btn-warning px-4">
+              🟡 Взять в работу
+            </a>
+            <a href="{% url 'task_list' %}" class="btn btn-outline-secondary ms-2">Назад</a>
+          </div>
+
+        {% elif review_task.status == "in_progress" %}
+          <form method="post" action="{% url 'task_review_approve' review_task.id %}">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Комментарий при проверке</label>
+              <textarea name="comment" rows="3" class="form-control" placeholder="Комментарий (опционально)..."></textarea>
+            </div>
+
+            <div class="text-center">
+              <button type="submit" class="btn btn-success px-4">
+                ✅ Утвердить
+              </button>
+              <a href="#" class="btn btn-danger px-4 ms-2" data-bs-toggle="modal" data-bs-target="#rejectModal">
+                ❌ Вернуть на доработку
+              </a>
+              <a href="{% url 'task_list' %}" class="btn btn-outline-secondary ms-2">Назад</a>
+            </div>
+          </form>
+
+          <!-- Модалка отклонения -->
+          <div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+              <form method="post" action="{% url 'task_review_reject' review_task.id %}" class="modal-content">
+                {% csrf_token %}
+                <div class="modal-header">
+                  <h5 class="modal-title" id="rejectModalLabel">Причина отклонения</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <textarea name="comment" rows="3" class="form-control" placeholder="Укажите причину возврата..."></textarea>
+                </div>
+                <div class="modal-footer">
+                  <button type="submit" class="btn btn-danger">Отправить</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+        {% else %}
+          <div class="alert alert-info text-center">
+            Проверка завершена. Дальнейшие действия недоступны.
+          </div>
+          <div class="text-center">
+            <a href="{% url 'task_list' %}" class="btn btn-outline-secondary">Назад</a>
+          </div>
+        {% endif %}
+
+      {% else %}
+        <div class="alert alert-danger">
+          ⚠ Исходная задача не найдена. Возможно, она была удалена.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

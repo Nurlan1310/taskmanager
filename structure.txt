@@ -1,0 +1,79 @@
+.
+├── db.sqlite3
+├── event_plans
+│   ├── 123123_5fXlz56.xlsx
+│   ├── 123123_EB0YrLe.xlsx
+│   ├── 123123_eKWIgjt.xlsx
+│   ├── 123123_sjQjuSy.xlsx
+│   ├── 123123.xlsx
+│   ├── 123123_YaRqoRc.xlsx
+│   ├── 123123_yFqt8jO.xlsx
+│   ├── 970228450836_contract_0cWkYGk.docx
+│   ├── 970228450836_contract.docx
+│   ├── 970228450836_contract_FxThD6w.docx
+│   ├── 970228450836_contract_jhJjKCJ.docx
+│   ├── 970228450836_contract_jsDC9qI.docx
+│   ├── 970228450836_contract_mKBsNpz.docx
+│   ├── 970228450836_contract_OF1DReh.docx
+│   ├── 970228450836_contract_RbMxJQj.docx
+│   ├── 970228450836_contract_Umlkb2t.docx
+│   ├── 970228450836_contract_urMYtuW.docx
+│   ├── 970228450836_contract_W93muUI.docx
+│   ├── template_empty.pdf
+│   ├── АЛҒЫС_ХАТ__ФОРУМ.docx
+│   ├── _Концепция_выставки_РУМЦДО_на_августовку_14.08.25.docx
+│   ├── _Программа_панельной_секции_ДОД_на_14_августа_2025_года_1_1.doc
+│   └── расписание_бот.xlsx
+├── manage.py
+├── source
+│   ├── bin
+│   ├── include
+│   ├── lib
+│   ├── lib64 -> lib
+│   ├── pyvenv.cfg
+│   └── share
+├── static
+│   ├── css
+│   └── img
+├── staticfiles
+│   ├── admin
+│   ├── css
+│   └── img
+├── structure.txt
+├── taskmanager
+│   ├── asgi.py
+│   ├── __init__.py
+│   ├── __pycache__
+│   ├── settings.py
+│   ├── urls.py
+│   └── wsgi.py
+├── taskmanager.sock
+├── tasks
+│   ├── admin.py
+│   ├── apps.py
+│   ├── forms.py
+│   ├── __init__.py
+│   ├── middleware
+│   ├── migrations
+│   ├── models.py
+│   ├── __pycache__
+│   ├── registration
+│   ├── signals.py
+│   ├── templates
+│   ├── tests.py
+│   ├── urls.py
+│   ├── utils.py
+│   ├── views
+│   └── views.py
+├── templates
+│   ├── base.html
+│   └── includes
+└── venv
+    ├── bin
+    ├── include
+    ├── lib
+    ├── lib64 -> lib
+    ├── pyvenv.cfg
+    └── share
+
+31 directories, 45 files

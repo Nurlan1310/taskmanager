@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Выход{% endblock %}
+
+{% block content %}
+<div class="text-center mt-5">
+  <h3>Вы вышли из системы</h3>
+  <a href="{% url 'login' %}" class="btn btn-primary mt-3">Войти снова</a>
+</div>
+{% endblock %}

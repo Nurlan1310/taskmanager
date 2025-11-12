@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% load static %}
+{% load widget_tweaks %}
+
+{% block title %}Создание карточки мероприятия{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+      <div class="card shadow-lg border-0">
+        <div class="card-body p-4">
+
+          <h4 class="fw-bold text-center mb-4">🗂 Новая карточка мероприятия</h4>
+
+          <form method="post" enctype="multipart/form-data" novalidate>
+            {% csrf_token %}
+
+            {% if form.errors %}
+            <div class="alert alert-danger">
+              <strong>Проверьте поля формы:</strong>
+              <ul class="mb-0">
+                {% for field, errors in form.errors.items %}
+                  <li><strong>{{ field|capfirst }}:</strong> {{ errors|join:", " }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+
+            <!-- Название -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Название мероприятия <span class="text-danger">*</span></label>
+              {% render_field form.title class="form-control" placeholder="Введите название..." %}
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-bold">Категории</label>
+                <div id="category-buttons" class="d-flex flex-wrap gap-2">
+                  {% for cat in form.categories.field.queryset %}
+                    <input type="checkbox" name="categories" value="{{ cat.id }}" id="cat-{{ cat.id }}" class="btn-check">
+                    <label class="btn btn-outline-primary category-label" for="cat-{{ cat.id }}">
+                      {{ cat.name }}
+                    </label>
+                  {% endfor %}
+                </div>
+            </div>
+
+
+            <!-- Описание -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Описание</label>
+              {% render_field form.description class="form-control" rows="3" placeholder="Краткое описание..." %}
+            </div>
+
+            <!-- План мероприятия -->
+            <div class="mb-3">
+              <div class="form-check mb-2">
+                {% render_field form.has_plan class="form-check-input" id="id_has_plan" %}
+                <label for="id_has_plan" class="form-check-label fw-semibold">С планом мероприятия</label>
+              </div>
+            </div>
+
+            <div id="plan_section" style="display: none;">
+              <div class="mb-3">
+                <label class="form-label fw-semibold">📎 План мероприятия</label>
+                {% render_field form.plan_file class="form-control" %}
+              </div>
+
+              <!-- Согласующие -->
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Согласующие (поочередно)</label>
+                <div id="approvers-list" class="d-flex flex-wrap gap-2 mb-2"></div>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="add-approver-btn">➕ Добавить</button>
+                <!-- контейнер для скрытых input'ов -->
+                <div id="approvers-hidden-container"></div>
+              </div>
+
+              <!-- Утверждающий -->
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Утверждающий (окончательный)</label>
+                {% render_field form.final_approver class="form-select" %}
+              </div>
+            </div>
+
+            <!-- Дата начала -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Дата начала <span class="text-danger">*</span></label>
+              {% render_field form.start_date class="form-control" type="date" %}
+            </div>
+
+            <!-- Дата окончания -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Дата окончания</label>
+              {% render_field form.end_date class="form-control" type="date" %}
+            </div>
+
+            <!-- Ответственный отдел -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Ответственный отдел</label>
+              {% render_field form.responsible_department class="form-select" %}
+            </div>
+
+            <!-- Смежные отделы -->
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Смежные отделы (если есть)</label>
+              <div id="shared-depts-list" class="d-flex flex-wrap gap-2 mb-2"></div>
+              <button type="button" class="btn btn-outline-primary btn-sm" id="add-dept-btn">➕ Добавить</button>
+              <div id="shared-depts-hidden-container"></div>
+            </div>
+
+            <!-- Кнопки -->
+            <div class="text-center mt-4">
+              <button type="submit" class="btn btn-success px-4">
+                💾 Отправить на согласование
+              </button>
+              <a href="{% url 'task_list' %}" class="btn btn-outline-secondary ms-2">Назад</a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное окно выбора -->
+<div class="modal fade" id="searchModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Выберите сотрудника / отдел</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="searchInput" class="form-control mb-3" placeholder="Поиск...">
+        <ul class="list-group" id="searchResults"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const hasPlan = document.getElementById("id_has_plan");
+  const planSection = document.getElementById("plan_section");
+  const approversList = document.getElementById("approvers-list");
+  const approversHiddenContainer = document.getElementById("approvers-hidden-container");
+  const sharedDeptsList = document.getElementById("shared-depts-list");
+  const sharedDeptsHiddenContainer = document.getElementById("shared-depts-hidden-container");
+
+  // данные подставляются из view (employees_json и departments_json)
+  const employees = {{ employees_json|safe }};
+  const departments = {{ departments_json|safe }};
+
+  let currentTarget = null;
+
+  function togglePlan() {
+    planSection.style.display = hasPlan.checked ? "block" : "none";
+  }
+  if (hasPlan) {
+    hasPlan.addEventListener("change", togglePlan);
+    togglePlan();
+  }
+
+  // открытие модалки
+  document.getElementById("add-approver-btn").addEventListener("click", () => openSearchModal("approver"));
+  document.getElementById("add-dept-btn").addEventListener("click", () => openSearchModal("dept"));
+
+  function openSearchModal(type) {
+    currentTarget = type;
+    const modalEl = document.getElementById("searchModal");
+    const modal = new bootstrap.Modal(modalEl);
+    document.getElementById("searchInput").value = "";
+    renderSearchResults(type === "approver" ? employees : departments);
+    modal.show();
+  }
+
+  function renderSearchResults(list) {
+    const ul = document.getElementById("searchResults");
+    ul.innerHTML = list.map(x => `<li class="list-group-item list-group-item-action" data-id="${x.id}" data-name="${x.name}">${x.name}</li>`).join("");
+  }
+
+  document.getElementById("searchInput").addEventListener("input", e => {
+    const q = e.target.value.trim().toLowerCase();
+    const source = currentTarget === "approver" ? employees : departments;
+    const filtered = source.filter(x => x.name.toLowerCase().includes(q));
+    renderSearchResults(filtered);
+  });
+
+  document.getElementById("searchResults").addEventListener("click", e => {
+    const li = e.target.closest("li");
+    if (!li) return;
+    const id = li.dataset.id;
+    const name = li.dataset.name;
+    addSelectedItem(currentTarget, id, name);
+    bootstrap.Modal.getInstance(document.getElementById("searchModal")).hide();
+  });
+
+  function addSelectedItem(type, id, name) {
+    const list = type === "approver" ? approversList : sharedDeptsList;
+    const container = type === "approver" ? approversHiddenContainer : sharedDeptsHiddenContainer;
+    const inputName = type === "approver" ? "approvers" : "shared_departments";
+
+    // предотвращаем дубли
+    if ([...list.querySelectorAll("[data-id]")].some(el => el.dataset.id === id)) return;
+
+    // визуальный элемент с крестиком
+    const badge = document.createElement("div");
+    badge.className = "badge bg-primary p-2 d-flex align-items-center gap-2";
+    badge.dataset.id = id;
+    badge.style.marginRight = "6px";
+    badge.innerHTML = `<span class="me-2">${name}</span><button type="button" class="btn-close btn-close-white btn-sm" aria-label="Удалить"></button>`;
+    list.appendChild(badge);
+
+    // скрытый input (по одному на каждый выбор) — Django распознает multiple inputs с одинаковым name
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = inputName;
+    hidden.value = id;
+    hidden.dataset.for = id; // для связи с badge
+    container.appendChild(hidden);
+
+    // удаление
+    badge.querySelector("button").addEventListener("click", () => {
+      // удаляем визуальный элемент и соответствующий hidden
+      const hid = container.querySelector(`input[data-for="${id}"]`);
+      if (hid) hid.remove();
+      badge.remove();
+    });
+  }
+
+  // --- Если у формы есть начальные значения (например при ошибке валидации),
+  //     можно предварительно отрисовать существующие approvers/shared_departments.
+  //     Для этого можно прочитать скрытые поля, если они уже присутствуют в HTML
+  //     (например, при возврате формы Django мог вставить select). Здесь оставляем без автозагрузки.
+});
+</script>
+
+
+{% endblock %}

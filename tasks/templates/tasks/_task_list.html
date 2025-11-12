@@ -1,0 +1,50 @@
+{% if tasks %}
+<ul class="list-group shadow-sm">
+  {% for task in tasks %}
+  <li class="list-group-item d-flex justify-content-between align-items-start flex-wrap">
+    <div class="me-3">
+      <a href="{% url 'task_detail' task.id %}" class="fw-semibold text-decoration-none text-dark">
+        {{ task.title }}
+      </a><br>
+      <small class="text-muted">
+        <strong>Дедлайн:</strong> {{ task.due_date|date:"d.m.Y" }} |
+        <strong>Статус:</strong>
+        {% if task.status == "done" %}
+          Выполнена
+        {% elif task.task_type == "approval" %}
+          На согласовании
+        {% else %}
+          {{ task.get_status_display }}
+        {% endif %}
+
+      </small><br>
+      <small class="text-muted">
+        👤 Исполнитель:
+        {% if task.assigned_employee %}
+          {{ task.assigned_employee.user.get_full_name|default:task.assigned_employee.user.username }}
+        {% else %}
+          —
+        {% endif %}
+      </small>
+    </div>
+
+    <span class="badge rounded-pill
+      {% if task.status == 'done' %}bg-success
+      {% elif task.task_type == 'approval' %}bg-primary
+      {% elif task.priority == 'urgent' %}bg-danger
+      {% elif task.status == 'in_progress' %}bg-warning text-dark
+      {% else %}bg-secondary{% endif %}">
+      {% if task.status == "done" %}
+        Выполнена
+      {% elif task.task_type == "approval" %}
+        На согласовании
+      {% else %}
+        {{ task.get_status_display }}
+      {% endif %}
+    </span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="alert alert-secondary">Пока нет задач для этого фильтра.</div>
+{% endif %}

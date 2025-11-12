@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Задачи и мероприятия{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+  <!-- 🔹 Информационный фильтр по сотруднику -->
+  {% if filter_emp %}
+  <div class="alert alert-info mb-4">
+    🔍 Показаны только задачи сотрудника
+    <strong>{{ filter_emp.user.get_full_name|default:filter_emp.user.username }}</strong>
+    ({{ filter_emp.position|default:"—" }}).
+    <a href="{% url 'task_list' %}" class="btn btn-sm btn-outline-secondary ms-2">Сбросить фильтр</a>
+  </div>
+  {% endif %}
+
+    <!-- 🔹 Категории -->
+    {% if categories %}
+    <div class="mb-4">
+      <div class="d-flex flex-wrap gap-2">
+        <a href="{% url 'task_list' %}"
+          class="category-tab btn btn-sm {% if not active_category %}btn-primary{% else %}btn-outline-primary{% endif %}">
+          📋 Все
+          <span class="badge bg-light text-primary ms-1">{{ cards|length }}</span>
+        </a>
+
+        {% for cat in categories %}
+          <a href="?category={{ cat.slug }}"
+            class="category-tab btn btn-sm {% if active_category and cat.slug == active_category.slug %}btn-primary{% else %}btn-outline-primary{% endif %}">
+            {{ cat.name }}
+            <span class="badge bg-light text-primary ms-1">{{ cat.cards.count }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+
+
+  <!-- ⚙️ Задачи на согласование -->
+  {% if approval_tasks %}
+  <div class="mb-5">
+    <h4 class="fw-bold text-primary mb-3">⚙️ Задачи на согласование</h4>
+    <div class="list-group shadow-sm">
+      {% for task in approval_tasks %}
+      <a href="{% url 'task_detail' task.id %}"
+         class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+        <div>
+          <strong>{{ task.title }}</strong><br>
+          <small class="text-muted">
+            Карточка: {{ task.card.title }} |
+            Создано: {{ task.created_at|date:"d.m.Y" }}
+          </small>
+          <small class="text-muted d-block mt-1">
+            👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
+            {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
+            {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+          </small>
+        </div>
+        <span class="badge bg-primary rounded-pill">На согласовании</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- 🔥 Срочные задачи -->
+  {% if urgent_tasks %}
+  <div class="mb-5">
+    <h4 class="fw-bold text-danger mb-3">🔥 Срочные задачи (до 3 дней)</h4>
+    <div class="list-group shadow-sm">
+      {% for task in urgent_tasks %}
+      <a href="{% url 'task_detail' task.id %}"
+         class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+        <div>
+          <strong>{{ task.title }}</strong><br>
+          <small class="text-muted">
+            Мероприятие: {{ task.card.title }} |
+            Дедлайн: {{ task.due_date|date:"d.m.Y" }}
+          </small>
+          <small class="text-muted d-block mt-1">
+            👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
+            {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
+            {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+          </small>
+        </div>
+        <span class="badge bg-danger rounded-pill">Срок!</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- 📅 Карточки мероприятий -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="fw-bold">📋 Мероприятия и задачи</h3>
+    <a href="{% url 'card_create' %}" class="btn btn-success btn-sm">➕ Новая карточка</a>
+  </div>
+
+  {% if cards %}
+  <div class="row">
+    {% for card in cards %}
+    <div class="col-md-6 col-lg-4 mb-4">
+      <div class="card shadow-sm h-100 border-0">
+        <div class="card-body d-flex flex-column">
+
+          <h5 class="fw-bold mb-1">
+            <a href="{% url 'card_detail' card.id %}" class="text-decoration-none text-dark">
+              {{ card.title }}
+            </a>
+          </h5>
+
+          {% if card.categories.exists %}
+            <div class="d-flex flex-wrap gap-1 mb-2">
+                {% for c in card.categories.all %}
+                    <span class="badge category-badge" data-category="{{ c.slug }}">{{ c.name }}</span>
+                {% endfor %}
+            </div>
+          {% endif %}
+
+
+          <p class="text-muted small mb-1">
+            📅 {{ card.start_date|date:"d.m.Y" }} — {{ card.end_date|date:"d.m.Y" }}
+          </p>
+          <p class="text-muted small mb-3">
+            👤 {{ card.created_by.get_full_name|default:card.created_by.user.username }}
+          </p>
+
+          <!-- Прогресс -->
+          <div class="progress mb-3" style="height: 10px;">
+            <div class="progress-bar bg-success" style="width: {{ card.progress }}%;"></div>
+          </div>
+          <small class="text-muted mb-3">Выполнено: {{ card.progress }}%</small>
+
+          <!-- Счётчики задач -->
+            <div class="d-flex gap-2 mb-3">
+              {% if card.approval_count %}
+                <span class="badge rounded-pill bg-primary" title="На согласовании">🟦 {{ card.approval_count }}</span>
+              {% endif %}
+              {% if card.urgent_count %}
+                <span class="badge rounded-pill bg-danger" title="Срочные">🔴 {{ card.urgent_count }}</span>
+              {% endif %}
+              {% if card.other_count %}
+                <span class="badge rounded-pill bg-secondary" title="В работе">⚪ {{ card.other_count }}</span>
+              {% endif %}
+              {% if card.done_count %}
+                <span class="badge rounded-pill bg-success" title="Выполненные">✅ {{ card.done_count }}</span>
+              {% endif %}
+            </div>
+
+
+          <!-- Кнопка -->
+          <div class="mt-auto pt-3 text-end">
+            <a href="{% url 'card_detail' card.id %}" class="btn btn-outline-primary btn-sm">
+              Открыть карточку →
+            </a>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="alert alert-secondary">
+    Пока нет созданных карточек мероприятий.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

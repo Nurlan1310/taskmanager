@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Аккаунт заморожен{% endblock %}
+
+{% block content %}
+<div class="container py-5 text-center">
+    <div class="card shadow-sm mx-auto" style="max-width: 600px;">
+        <div class="card-body py-4">
+            <h4 class="mb-3">🔒 Ваш аккаунт временно заморожен</h4>
+            <p class="text-muted mb-4">
+                Вы передали свои полномочия сотруднику:<br>
+                <strong>{{ employee.active_delegate }}</strong><br>
+                до <strong>{{ employee.delegate_until }}</strong>.
+            </p>
+
+            <div class="alert alert-info text-start">
+                <ul class="mb-0">
+                    <li>Вы не можете выполнять действия в системе, пока замещение активно.</li>
+                    <li>Чтобы возобновить доступ, отмените замещение вручную.</li>
+                    <li>После отмены ваш аккаунт снова станет активным.</li>
+                </ul>
+            </div>
+
+            <form method="post" class="mt-4">
+                {% csrf_token %}
+                <button name="cancel_delegation" class="btn btn-danger">
+                    🚫 Отменить замещение
+                </button>
+            </form>
+
+            <hr class="my-4">
+
+            <p class="text-muted mb-2">или</p>
+            <a href="{% url 'logout' %}" class="btn btn-outline-secondary">
+                ↩️ Выйти из аккаунта
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="/">TaskManager</a>
+
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Переключить навигацию">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarNavDropdown">
+      <ul class="navbar-nav ms-auto align-items-center">
+
+        <!-- Задачи -->
+        <li class="nav-item">
+          <a class="nav-link {% if request.resolver_match.url_name == 'task_list' %}active{% endif %}" href="{% url 'task_list' %}">📋 Задачи</a>
+        </li>
+
+        <!-- Меню с выпадающим списком -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="navbarMenuDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            ☰ Меню
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end bg-dark border-0 shadow-sm" aria-labelledby="navbarMenuDropdown">
+
+            <li>
+              <a class="dropdown-item text-light" href="{% url 'employee_list' %}">
+                👥 Сотрудники
+              </a>
+            </li>
+
+            <li>
+              <a class="dropdown-item text-light" href="{% url 'my_delegation' %}">
+                🔁 Замещение
+              </a>
+            </li>
+
+            {% if user.is_staff %}
+            <li><hr class="dropdown-divider bg-secondary"></li>
+            <li>
+              <a class="dropdown-item text-light" href="/admin/">
+                ⚙️ Админка
+              </a>
+            </li>
+            {% endif %}
+
+            <li><hr class="dropdown-divider bg-secondary"></li>
+            <li>
+              <a class="dropdown-item text-light" href="{% url 'logout' %}">
+                🚪 Выйти
+              </a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>

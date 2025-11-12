@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ employee.user.get_full_name|default:employee.user.username }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="card shadow-sm border-0 p-4">
+    <div class="d-flex align-items-center mb-4">
+      <div class="rounded-circle bg-primary text-white d-flex justify-content-center align-items-center me-3" style="width:60px; height:60px; font-size:1.5rem;">
+        {{ employee.user.first_name|default:employee.user.username|slice:":1"|upper }}
+      </div>
+      <div>
+        <h4 class="fw-bold mb-0">
+          {{ employee.user.get_full_name|default:employee.user.username }}
+        </h4>
+        <small class="text-muted">
+          {{ employee.position|default:"—" }}
+        </small>
+      </div>
+    </div>
+
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <p><strong>🏢 Отдел:</strong> {{ employee.department.name|default:"—" }}</p>
+      </div>
+      <div class="col-md-6">
+        <p><strong>🎯 Роль:</strong> {{ employee.get_role_display }}</p>
+      </div>
+    </div>
+
+    {% if active_delegate %}
+    <div class="alert alert-warning border-start border-4 border-warning shadow-sm">
+      🔁 Сотрудник передал полномочия:
+      <strong>{{ active_delegate.user.get_full_name|default:active_delegate.user.username }}</strong>
+      до {{ employee.delegate_until|date:"d.m.Y" }}.
+    </div>
+    {% endif %}
+
+    {% if delegated_from %}
+    <div class="alert alert-info border-start border-4 border-info shadow-sm">
+      ✅ Сейчас этот сотрудник замещает:
+      <strong>{{ delegated_from.user.get_full_name|default:delegated_from.user.username }}</strong>
+      до {{ delegated_from.delegate_until|date:"d.m.Y" }}.
+    </div>
+    {% endif %}
+
+    <hr>
+
+    <h6 class="fw-bold mb-3">📋 Контактная информация</h6>
+    <p><strong>👤 Логин:</strong> {{ employee.user.username }}</p>
+    <p><strong>📧 Email:</strong> {{ employee.user.email|default:"—" }}</p>
+
+    <div class="mt-4">
+      <a href="{% url 'employee_list' %}" class="btn btn-secondary">⬅ Назад</a>
+      <a href="{% url 'task_list' %}?employee={{ employee.id }}" class="btn btn-outline-primary">
+        🔍 Задачи этого сотрудника
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

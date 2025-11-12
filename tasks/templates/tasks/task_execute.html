@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Исполнение задачи{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="card shadow-lg border-0">
+    <div class="card-body p-4">
+
+      <h4 class="fw-bold text-center mb-3">✅ Исполнение задачи</h4>
+
+      <h5 class="mb-3">{{ task.title }}</h5>
+      <p class="text-muted">{{ task.description|default:"Нет описания" }}</p>
+
+      <hr>
+
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <!-- Комментарий исполнителя -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Комментарий о выполнении</label>
+          <textarea name="execution_comment" class="form-control" rows="4" placeholder="Опишите, что сделано..."></textarea>
+        </div>
+
+        <!-- 🔗 Ссылка -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Ссылка (Google Диск, и т.д.)</label>
+          <input type="url" name="link" class="form-control" placeholder="https://...">
+        </div>
+
+        <!-- 📎 Файл -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Вложение (один файл)</label>
+          <input type="file" name="file" class="form-control">
+        </div>
+
+        <!-- --- Альтернативно: множественная загрузка (временно отключено) ---
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Вложения (несколько файлов)</label>
+          <input type="file" name="files" class="form-control" multiple>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Ссылки (можно несколько)</label>
+          <div id="links-container">
+            <input type="url" name="links[]" class="form-control mb-2" placeholder="https://...">
+          </div>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="add-link-btn">➕ Добавить ещё ссылку</button>
+        </div>
+        -->
+
+        <div class="text-center mt-4">
+          <button type="submit" class="btn btn-success px-4">
+            🚀 Отправить на согласование
+          </button>
+          <a href="{% url 'task_detail' task.id %}" class="btn btn-outline-secondary ms-2">Назад</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- --- Скрипт для восстановления поддержки нескольких ссылок (сейчас не используется) ---
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const container = document.getElementById("links-container");
+  const addBtn = document.getElementById("add-link-btn");
+  if (addBtn) {
+    addBtn.addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "url";
+      input.name = "links[]";
+      input.className = "form-control mb-2";
+      input.placeholder = "https://...";
+      container.appendChild(input);
+    });
+  }
+});
+</script>
+-->
+{% endblock %}
