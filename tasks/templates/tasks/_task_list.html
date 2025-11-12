@@ -7,7 +7,7 @@
         {{ task.title }}
       </a><br>
       <small class="text-muted">
-        <strong>Дедлайн:</strong> {{ task.due_date|date:"d.m.Y" }} |
+        {% if task.due_date %}<strong>Дедлайн:</strong> {{ task.due_date|date:"d.m.Y" }} |{% endif %}
         <strong>Статус:</strong>
         {% if task.status == "done" %}
           Выполнена
@@ -16,6 +16,8 @@
         {% else %}
           {{ task.get_status_display }}
         {% endif %}
+        <strong>| Автор:</strong> {{ task.created_by.user.get_full_name }} |
+        <strong>Отправлено в:</strong> {{ task.created_at|date:"H.m d.m.Y" }}
 
       </small><br>
       <small class="text-muted">
@@ -29,11 +31,14 @@
     </div>
 
     <span class="badge rounded-pill
-      {% if task.status == 'done' %}bg-success
-      {% elif task.task_type == 'approval' %}bg-primary
-      {% elif task.priority == 'urgent' %}bg-danger
+      {% if task.task_type == 'approval' %}bg-success
+      {% elif task.task_type == 'review' %}bg-primary
       {% elif task.status == 'in_progress' %}bg-warning text-dark
-      {% else %}bg-secondary{% endif %}">
+      {% elif task.status == 'under_review' %}bg-purple
+      {% elif task.status == 'sent_for_review' %}bg-purple
+      {% elif task.status == 'new' %}bg-secondary
+      {% elif task.status == 'done' %}bg-success
+      {% elif task.priority == 'Отклонена' %}bg-warning{% endif %}">
       {% if task.status == "done" %}
         Выполнена
       {% elif task.task_type == "approval" %}

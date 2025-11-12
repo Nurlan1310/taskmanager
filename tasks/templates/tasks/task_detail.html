@@ -98,7 +98,21 @@
 
     <hr>
 
-    {% if user.employee == task.assigned_employee and task.status == "new" or task.status == "rejected" or task.status == "sent_for_review" %}
+    {% if user.employee == task.assigned_employee and task.task_type == "regular" and task.status == "new" or task.status == "rejected" %}
+      <form action="{% url 'take_task' task.id %}" method="post" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-warning">🟡 Взять в работу</button>
+      </form>
+    {% endif %}
+
+    {% if user.employee == task.assigned_employee and task.status == "sent_for_review" %}
+      <form action="{% url 'take_task' task.id %}" method="post" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-warning">🟡 Редактировать</button>
+      </form>
+    {% endif %}
+
+    {% if user.employee == task.assigned_employee and task.task_type == "review" and task.status == "new" %}
       <form action="{% url 'take_task' task.id %}" method="post" class="d-inline">
         {% csrf_token %}
         <button type="submit" class="btn btn-warning">🟡 Взять в работу</button>

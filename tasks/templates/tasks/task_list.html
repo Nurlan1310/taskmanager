@@ -16,6 +16,150 @@
   </div>
   {% endif %}
 
+
+  <!-- 🔥 Срочные задачи -->
+    {% if urgent_tasks %}
+    <div class="mb-5">
+      <h4 class="fw-bold text-danger mb-3 d-flex align-items-center justify-content-between" style="cursor: pointer;"
+          data-bs-toggle="collapse" data-bs-target="#urgentTasksList" aria-expanded="false">
+        🔥 Срочные задачи ({{ urgent_tasks|length }})
+        <i class="bi bi-chevron-down small"></i>
+      </h4>
+
+      <div id="urgentTasksList" class="collapse">
+        <div class="list-group shadow-sm">
+          {% for task in urgent_tasks %}
+          <a href="{% url 'task_detail' task.id %}"
+             class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ task.title }}</strong><br>
+              <small class="text-muted">
+                Мероприятие: {{ task.card.title }} |
+                Дедлайн: {{ task.due_date|date:"d.m.Y" }} |
+                Время создания: {{ task.created_at|date:"d.m.Y H.m" }}
+              </small>
+              <small class="text-muted d-block mt-1">
+                👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
+                {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
+                {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+              </small>
+            </div>
+            <span class="badge bg-danger rounded-pill">Срок!</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+<!-- ⚙️ Задачи на согласование -->
+  {% if approval_tasks %}
+    <div class="mb-5">
+      <h4 class="fw-bold text-primary mb-3 d-flex align-items-center justify-content-between" style="cursor: pointer;"
+          data-bs-toggle="collapse" data-bs-target="#approvalTasksList" aria-expanded="false">
+        ⚙️ Задачи на проверку ({{ approval_tasks|length }})
+        <i class="bi bi-chevron-down small"></i>
+      </h4>
+
+      <div id="approvalTasksList" class="collapse">
+        <div class="list-group shadow-sm">
+          {% for task in approval_tasks %}
+          <a href="{% url 'task_detail' task.id %}"
+             class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ task.title }}</strong><br>
+              <small class="text-muted">
+                Мероприятие: {{ task.card.title }} |
+                Дедлайн: {{ task.due_date|date:"d.m.Y" }} |
+                Время создания: {{ task.created_at|date:"d.m.Y H.m" }}
+              </small>
+              <small class="text-muted d-block mt-1">
+                👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
+                {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
+                {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+              </small>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- 🔥 Ваши задачи на согласовании -->
+    {% if review_tasks %}
+    <div class="mb-5">
+      <h4 class="fw-bold text-secondary mb-3 d-flex align-items-center justify-content-between" style="cursor: pointer;"
+          data-bs-toggle="collapse" data-bs-target="#reviewTasksList" aria-expanded="false">
+        ⏳ Ваши задачи на согласовании ({{ review_tasks|length }})
+        <i class="bi bi-chevron-down small"></i>
+      </h4>
+
+      <div id="reviewTasksList" class="collapse">
+        <div class="list-group shadow-sm">
+          {% for task in review_tasks %}
+          <a href="{% url 'task_detail' task.id %}"
+             class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ task.title }}</strong><br>
+              <small class="text-muted">
+                Мероприятие: {{ task.card.title }} |
+                Дедлайн: {{ task.due_date|date:"d.m.Y" }} |
+                Время создания: {{ task.created_at|date:"d.m.Y H.m" }}
+              </small>
+              <small class="text-muted d-block mt-1">
+                👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
+                {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
+                {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+              </small>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+        <!-- ❌ Отклонения -->
+    {% if rejected_tasks %}
+    <div class="mb-5">
+      <h4 class="fw-bold text-warning mb-3 d-flex align-items-center justify-content-between" style="cursor: pointer;"
+          data-bs-toggle="collapse" data-bs-target="#rejectedTasksList" aria-expanded="false">
+        ❌ Отклонения ({{ rejected_tasks|length }})
+        <i class="bi bi-chevron-down small"></i>
+      </h4>
+
+      <div id="rejectedTasksList" class="collapse">
+        <div class="list-group shadow-sm">
+          {% for task in rejected_tasks %}
+          <a href="{% url 'task_detail' task.id %}"
+             class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ task.title }}</strong><br>
+              <small class="text-muted">
+                Мероприятие: {{ task.card.title }} |
+                Дедлайн: {{ task.due_date|date:"d.m.Y" }} |
+                Время создания: {{ task.created_at|date:"d.m.Y H.m" }}
+              </small>
+              <small class="text-muted d-block mt-1">
+                👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
+                {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
+                {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+              </small>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  <!-- 📅 Карточки мероприятий -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="fw-bold">📋 Мероприятия и задачи</h3>
+    <a href="{% url 'card_create' %}" class="btn btn-success btn-sm">➕ Новая карточка</a>
+  </div>
+
     <!-- 🔹 Категории -->
     {% if categories %}
     <div class="mb-4">
@@ -23,7 +167,7 @@
         <a href="{% url 'task_list' %}"
           class="category-tab btn btn-sm {% if not active_category %}btn-primary{% else %}btn-outline-primary{% endif %}">
           📋 Все
-          <span class="badge bg-light text-primary ms-1">{{ cards|length }}</span>
+          <span class="badge bg-light text-primary ms-1">{{ cards_all }}</span>
         </a>
 
         {% for cat in categories %}
@@ -36,68 +180,6 @@
       </div>
     </div>
     {% endif %}
-
-
-
-  <!-- ⚙️ Задачи на согласование -->
-  {% if approval_tasks %}
-  <div class="mb-5">
-    <h4 class="fw-bold text-primary mb-3">⚙️ Задачи на согласование</h4>
-    <div class="list-group shadow-sm">
-      {% for task in approval_tasks %}
-      <a href="{% url 'task_detail' task.id %}"
-         class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-        <div>
-          <strong>{{ task.title }}</strong><br>
-          <small class="text-muted">
-            Карточка: {{ task.card.title }} |
-            Создано: {{ task.created_at|date:"d.m.Y" }}
-          </small>
-          <small class="text-muted d-block mt-1">
-            👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
-            {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
-            {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
-          </small>
-        </div>
-        <span class="badge bg-primary rounded-pill">На согласовании</span>
-      </a>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- 🔥 Срочные задачи -->
-  {% if urgent_tasks %}
-  <div class="mb-5">
-    <h4 class="fw-bold text-danger mb-3">🔥 Срочные задачи (до 3 дней)</h4>
-    <div class="list-group shadow-sm">
-      {% for task in urgent_tasks %}
-      <a href="{% url 'task_detail' task.id %}"
-         class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-        <div>
-          <strong>{{ task.title }}</strong><br>
-          <small class="text-muted">
-            Мероприятие: {{ task.card.title }} |
-            Дедлайн: {{ task.due_date|date:"d.m.Y" }}
-          </small>
-          <small class="text-muted d-block mt-1">
-            👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
-            {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
-            {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
-          </small>
-        </div>
-        <span class="badge bg-danger rounded-pill">Срок!</span>
-      </a>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- 📅 Карточки мероприятий -->
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3 class="fw-bold">📋 Мероприятия и задачи</h3>
-    <a href="{% url 'card_create' %}" class="btn btn-success btn-sm">➕ Новая карточка</a>
-  </div>
 
   {% if cards %}
   <div class="row">
@@ -125,7 +207,7 @@
             📅 {{ card.start_date|date:"d.m.Y" }} — {{ card.end_date|date:"d.m.Y" }}
           </p>
           <p class="text-muted small mb-3">
-            👤 {{ card.created_by.get_full_name|default:card.created_by.user.username }}
+            🏢 {{ card.responsible_department }}
           </p>
 
           <!-- Прогресс -->

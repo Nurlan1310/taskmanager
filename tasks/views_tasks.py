@@ -49,7 +49,7 @@ def task_list(request):
         Q(cc=effective_employee),
         Q(due_date__isnull=False),
         Q(due_date__lte=urgent_deadline),
-        ~Q(status="done")
+        Q(status__in=["new", "in_progress"])  # показываем только новые задачи
     ).distinct().order_by("due_date")
 
     if filter_emp:
@@ -59,7 +59,7 @@ def task_list(request):
 
     urgent_tasks = urgent_tasks_qs
 
-    # 🧾 Задачи на утверждение (персональные)
+    # 🧾 Задачи на проверку (персональные)
     approval_tasks_qs = Task.objects.filter(
         assigned_employee=effective_employee,
         task_type__in=["approval", "review"]
@@ -72,9 +72,41 @@ def task_list(request):
 
     approval_tasks = approval_tasks_qs
 
+    # 🧾 Задачи отправленные на утверждение (персональные)
+    review_tasks_qs = Task.objects.filter(
+        Q(assigned_employee=effective_employee) |
+        Q(assigned_department=effective_employee.department) |
+        Q(cc=effective_employee),
+        Q(due_date__isnull=False),
+        Q(status__in=["under_review","sent_for_review"])  # показываем только новые задачи
+    ).distinct().order_by("due_date")
+
+    if filter_emp:
+        review_tasks_qs = review_tasks_qs.filter(
+            Q(assigned_employee=filter_emp) | Q(created_by=filter_emp)
+        )
+
+    review_tasks = review_tasks_qs
+
+    # 🧾 Задачи отправленные на утверждение (персональные)
+    rejected_tasks_qs = Task.objects.filter(
+        Q(assigned_employee=effective_employee) |
+        Q(assigned_department=effective_employee.department) |
+        Q(cc=effective_employee),
+        Q(due_date__isnull=False),
+        Q(status="rejected")  # показываем только новые задачи
+    ).distinct().order_by("due_date")
+
+    if filter_emp:
+        rejected_tasks_qs = rejected_tasks_qs.filter(
+            Q(assigned_employee=filter_emp) | Q(created_by=filter_emp)
+        )
+
+    rejected_tasks = rejected_tasks_qs
+
     # 📋 Все карточки мероприятий (видны всем)
     cards_qs = EventCard.objects.all().prefetch_related("tasks", "categories").order_by("-start_date")
-
+    cards_all=cards_qs.count()
     # фильтр по категории
     if active_category:
         cards_qs = cards_qs.filter(categories=active_category)
@@ -98,7 +130,10 @@ def task_list(request):
     return render(request, "tasks/task_list.html", {
         "urgent_tasks": urgent_tasks,
         "approval_tasks": approval_tasks,
+        "review_tasks": review_tasks,
+        "rejected_tasks": rejected_tasks,
         "cards": cards,
+        "cards_all": cards_all,
         "categories": categories,
         "active_category": active_category,
         "filter_emp": filter_emp,
@@ -117,24 +152,7 @@ def task_detail(request, task_id):
 # УПРАВЛЕНИЕ ЗАДАЧАМИ task_create_for_card
 # =============================
 
-# @login_required
-# def create_task(request):
-#     emp = request.user.employee
-#     if request.method == "POST":
-#         form = TaskForm(request.POST)
-#         if form.is_valid():
-#             task = form.save(commit=False)
-#             task.created_by = emp
-#             task.save()
-#             form.save_m2m()
-#             messages.success(request, "Задача создана.")
-#             return redirect("task_list")
-#     else:
-#         form = TaskForm()
-#     return render(request, "tasks/create_task.html", {"form": form})
 
-
-# views_tasks.py (или views_cards.py)
 @login_required
 def task_create_for_card(request, card_id):
     card = get_object_or_404(EventCard, pk=card_id)
@@ -227,7 +245,6 @@ def take_task(request, task_id):
             timestamp=timezone.now(),
         )
         messages.success(request, "Задача принята в работу.")
-        return redirect("task_list")
 
     return render(request, "tasks/task_detail.html", {"task": task})
 

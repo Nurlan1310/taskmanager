@@ -118,43 +118,37 @@ def card_detail(request, card_id):
     # --- Базовый queryset ---
     tasks_qs = card.tasks.select_related("assigned_employee", "assigned_department", "created_by")
 
-    # --- Ролевая фильтрация ---
-    if effective_emp.role in ("director", "deputy") or card.created_by == effective_emp:
-        # 👑 Директор, зам или создатель карточки — видят всё
-        tasks = tasks_qs
-    elif effective_emp.role in ("head"):
-        # 👩‍💼 Руководитель / старший — видят свои и сотрудников отдела
-        tasks = tasks_qs.filter(
+    # --- Новый фильтр: владелец (mine / department / all) ---
+    owner_filter = request.GET.get("owner", "mine")
+
+    if owner_filter == "mine":
+        tasks_qs = tasks_qs.filter(
             Q(assigned_employee=effective_emp) |
+            Q(recipients=effective_emp)
+        )
+    elif owner_filter == "department":
+        tasks_qs = tasks_qs.filter(
             Q(assigned_department=effective_emp.department) |
-            Q(created_by=effective_emp) |
-            Q(recipients=effective_emp)
-        ).distinct()
-    else:
-        # 👨‍💻 Обычный сотрудник — только свои задачи
-        tasks = tasks_qs.filter(
-            Q(assigned_employee=effective_emp) |
-            Q(created_by=effective_emp) |
-            Q(recipients=effective_emp)
-        ).distinct()
+            Q(assigned_employee__department=effective_emp.department)
+        )
+    # если "all" — ничего не фильтруем
 
     # --- Фильтрация по статусу ---
     filter_type = request.GET.get("filter", "all")
 
     if filter_type == "review":
-        tasks = tasks.filter(task_type="review").exclude(status="done")
+        tasks_qs = tasks_qs.filter(task_type="review").exclude(status="done")
     elif filter_type == "urgent":
-        tasks = tasks.filter(priority="urgent").exclude(status="done")
+        tasks_qs = tasks_qs.filter(priority="urgent").exclude(status="done")
     elif filter_type == "new":
-        tasks = tasks.filter(status="new")
+        tasks_qs = tasks_qs.filter(status="new")
     elif filter_type == "in_progress":
-        tasks = tasks.filter(status="in_progress")
+        tasks_qs = tasks_qs.filter(status="in_progress")
     elif filter_type == "done":
-        tasks = tasks.filter(status="done")
-    # иначе "all" — ничего не фильтруем
+        tasks_qs = tasks_qs.filter(status="done")
 
     # --- Сортировка ---
-    tasks = tasks.order_by(
+    tasks = tasks_qs.order_by(
         Case(
             When(task_type="approval", then=0),
             When(task_type="review", then=1),
@@ -167,24 +161,23 @@ def card_detail(request, card_id):
         )
     )
 
-    # --- Прогресс выполнения ---
-    total = tasks_qs.count()
-    done = tasks_qs.filter(status="done").count()
+    # --- Прогресс ---
+    total = card.tasks.count()
+    done = card.tasks.filter(status="done").count()
     progress = int((done / total) * 100) if total > 0 else 0
 
-    # --- AJAX-подгрузка ---
+    # --- AJAX ---
     if request.GET.get("ajax") == "1":
         return render(request, "tasks/_task_list.html", {"tasks": tasks})
 
-    # --- Контекст ---
-    context = {
+    return render(request, "tasks/card_detail.html", {
         "card": card,
         "tasks": tasks,
         "progress": progress,
         "filter_type": filter_type,
-    }
+        "owner_filter": owner_filter,  # 👈 добавим в контекст
+    })
 
-    return render(request, "tasks/card_detail.html", context)
 
 
 

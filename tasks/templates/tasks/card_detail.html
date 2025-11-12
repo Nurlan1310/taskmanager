@@ -88,6 +88,22 @@
     {% endif %}
   </div>
 
+       <!-- 🔹 Фильтры по владельцу -->
+    <div class="mb-3 d-flex flex-wrap gap-2">
+      <a href="?owner=mine"
+         class="category-tab {% if owner_filter == 'mine' %}active{% endif %}"
+         data-color="#0d6efd">Мои</a>
+
+      <a href="?owner=department"
+         class="category-tab {% if owner_filter == 'department' %}active{% endif %}"
+         data-color="#198754">Мой отдел</a>
+
+      <a href="?owner=all"
+         class="category-tab {% if owner_filter == 'all' %}active{% endif %}"
+         data-color="#6c757d">Все</a>
+    </div>
+
+
   <!-- Список задач -->
   <!-- Фильтры задач -->
     <div class="btn-group mb-3" id="task-filters" role="group">
@@ -107,23 +123,51 @@
     <!-- JS -->
     <script>
     document.addEventListener("DOMContentLoaded", () => {
-      const filters = document.querySelectorAll("#task-filters button");
+      const statusFilters = document.querySelectorAll("#task-filters button");
+      const ownerFilters = document.querySelectorAll(".category-tab");
       const list = document.getElementById("task-list");
 
-      filters.forEach(btn => {
-        btn.addEventListener("click", async () => {
-          const type = btn.dataset.filter;
-          filters.forEach(b => b.classList.remove("active"));
+      // Значения по умолчанию из контекста Django
+      let currentOwner = "{{ owner_filter }}";
+      let currentStatus = "{{ filter_type }}";
+
+      async function updateList(owner, status) {
+        const resp = await fetch(`?owner=${owner}&filter=${status}&ajax=1`);
+        const html = await resp.text();
+        list.innerHTML = html;
+        history.replaceState(null, "", `?owner=${owner}&filter=${status}`);
+      }
+
+      // --- Обработчик клика по фильтрам "Мои / Мой отдел / Все"
+      ownerFilters.forEach(tab => {
+        tab.addEventListener("click", e => {
+          e.preventDefault();
+
+          // Меняем активный фильтр визуально
+          ownerFilters.forEach(t => t.classList.remove("active"));
+          tab.classList.add("active");
+
+          // Обновляем текущее значение и перерисовываем задачи
+          currentOwner = tab.getAttribute("href").split("=")[1];
+          updateList(currentOwner, currentStatus);
+        });
+      });
+
+      // --- Обработчик клика по фильтрам задач ("все", "новые", "в работе" и т.п.)
+      statusFilters.forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.preventDefault();
+          statusFilters.forEach(b => b.classList.remove("active"));
           btn.classList.add("active");
 
-          const resp = await fetch(`?filter=${type}&ajax=1`);
-          const html = await resp.text();
-          list.innerHTML = html;
-          history.replaceState(null, "", `?filter=${type}`);
+          currentStatus = btn.dataset.filter;
+          updateList(currentOwner, currentStatus);
         });
       });
     });
     </script>
+
+
 
 </div>
 <!-- Модальное окно: ход согласования -->
