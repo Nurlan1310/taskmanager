@@ -145,7 +145,27 @@ def task_list(request):
 @login_required
 def task_detail(request, task_id):
     task = get_object_or_404(Task, id=task_id)
-    return render(request, "tasks/task_detail.html", {"task": task})
+    employee = request.user.employee
+
+    # Проверяем доступ (если нужно ограничить видимость)
+    if (
+        employee.role not in ("director", "deputy")
+        and task.assigned_employee != employee
+        and task.created_by != employee
+    ):
+        messages.error(request, "У вас нет доступа к этой задаче.")
+        return redirect("task_list")
+
+    # Получаем историю и вложения
+    history = task.history.order_by("-timestamp")
+    attachments = task.attachments.order_by("-uploaded_at")
+
+    context = {
+        "task": task,
+        "history": history,
+        "attachments": attachments,
+    }
+    return render(request, "tasks/task_detail.html", context)
 
 
 # =============================
@@ -491,7 +511,8 @@ def task_review_approve(request, task_id):
 
     if base_task:
         base_task.status = "done"
-        base_task.save(update_fields=["status"])
+        base_task.review_comment = comment or "Задача утверждена без комментария."
+        base_task.save(update_fields=["status", "review_comment"])
         TaskHistory.objects.create(task=base_task, employee=reviewer, action="approved", comment=comment or "Задача согласована и завершена.")
 
     messages.success(request, "Задача утверждена и отмечена как выполненная ✅")
@@ -504,7 +525,7 @@ def task_review_reject(request, task_id):
     review_task = get_object_or_404(Task, id=task_id)
     reviewer = request.user.employee
 
-    # Поиск исходной задачи
+    # Ищем исходную задачу
     base_task = None
     m = re.search(r"\[orig_task_id\s*:\s*(\d+)\]", review_task.description or "")
     if m:
@@ -512,7 +533,6 @@ def task_review_reject(request, task_id):
 
     comment = request.POST.get("comment", "").strip()
 
-    # Проверка найден ли base_task
     if not base_task:
         messages.error(request, "Исходная задача не найдена.")
         return redirect("task_list")
@@ -520,11 +540,12 @@ def task_review_reject(request, task_id):
     # Обновляем статусы
     review_task.status = "done"
     review_task.save(update_fields=["status"])
-    TaskHistory.objects.create(task=review_task, employee=reviewer, action="done", comment="Проверка завершена. Задача возвращена исполнителю.")
+    TaskHistory.objects.create(task=review_task, employee=reviewer, action="done")
 
     base_task.status = "rejected"
-    base_task.save(update_fields=["status"])
-    TaskHistory.objects.create(task=base_task, employee=reviewer, action="rejected", comment=comment or "Задача возвращена на доработку.")
+    base_task.review_comment = comment or "Задача возвращена на доработку."
+    base_task.save(update_fields=["status", "review_comment"])
+    TaskHistory.objects.create(task=base_task, employee=reviewer, action="rejected")
 
     messages.warning(request, "Задача возвращена исполнителю на доработку 🔁")
     return redirect("task_list")

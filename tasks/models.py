@@ -234,6 +234,7 @@ class Task(models.Model):
     due_date = models.DateField(null=True, blank=True)
     google_drive_link = models.URLField(blank=True, null=True, verbose_name="Ссылка на Google Диск")
     attachment = models.FileField(upload_to="tasks/files/", blank=True, null=True, verbose_name="Вложение")
+    review_comment = models.TextField(blank=True, null=True, verbose_name="Комментарий проверяющего")
 
     def __str__(self):
         return f"{self.title} ({self.get_status_display()})"

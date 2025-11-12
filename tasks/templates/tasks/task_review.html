@@ -74,35 +74,15 @@
             </div>
 
             <div class="text-center">
-              <button type="submit" class="btn btn-success px-4">
+              <button type="submit" formaction="{% url 'task_review_approve' review_task.id %}" class="btn btn-success px-4">
                 ✅ Утвердить
               </button>
-              <a href="#" class="btn btn-danger px-4 ms-2" data-bs-toggle="modal" data-bs-target="#rejectModal">
+              <button type="submit" formaction="{% url 'task_review_reject' review_task.id %}" class="btn btn-danger px-4 ms-2">
                 ❌ Вернуть на доработку
-              </a>
+              </button>
               <a href="{% url 'task_list' %}" class="btn btn-outline-secondary ms-2">Назад</a>
             </div>
           </form>
-
-          <!-- Модалка отклонения -->
-          <div class="modal fade" id="rejectModal" tabindex="-1" aria-labelledby="rejectModalLabel" aria-hidden="true">
-            <div class="modal-dialog">
-              <form method="post" action="{% url 'task_review_reject' review_task.id %}" class="modal-content">
-                {% csrf_token %}
-                <div class="modal-header">
-                  <h5 class="modal-title" id="rejectModalLabel">Причина отклонения</h5>
-                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                  <textarea name="comment" rows="3" class="form-control" placeholder="Укажите причину возврата..."></textarea>
-                </div>
-                <div class="modal-footer">
-                  <button type="submit" class="btn btn-danger">Отправить</button>
-                </div>
-              </form>
-            </div>
-          </div>
-
         {% else %}
           <div class="alert alert-info text-center">
             Проверка завершена. Дальнейшие действия недоступны.

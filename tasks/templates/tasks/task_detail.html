@@ -90,6 +90,12 @@
       </p>
     {% endif %}
 
+    {% if task.review_comment %}
+        <hr>
+        <h5 class="fw-semibold">💬 Комментарий проверяющего</h5>
+        <div class="alert alert-info">{{ task.review_comment }}</div>
+    {% endif %}
+
     {% if task.attachment %}
       <p><strong>Файл:</strong>
         <a href="{{ task.attachment.url }}" download>📎 {{ task.attachment.name }}</a>
@@ -113,7 +119,7 @@
     {% endif %}
 
     {% if user.employee == task.assigned_employee and task.task_type == "review" and task.status == "new" %}
-      <form action="{% url 'take_task' task.id %}" method="post" class="d-inline">
+      <form action="{% url 'task_review_take' task.id %}" method="post" class="d-inline">
         {% csrf_token %}
         <button type="submit" class="btn btn-warning">🟡 Взять в работу</button>
       </form>
