@@ -38,7 +38,7 @@
       {% elif task.status == 'sent_for_review' %}bg-purple
       {% elif task.status == 'new' %}bg-secondary
       {% elif task.status == 'done' %}bg-success
-      {% elif task.priority == 'Отклонена' %}bg-warning{% endif %}">
+      {% elif task.status == 'rejected' %}bg-danger{% endif %}">
       {% if task.status == "done" %}
         Выполнена
       {% elif task.task_type == "approval" %}
