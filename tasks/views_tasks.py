@@ -5,9 +5,10 @@ from django.contrib import messages
 from django.db import transaction
 from django.contrib.auth.decorators import login_required
 from django.utils import timezone
+from tasks.utils.notifications import notify
 import json
 
-from .models import Task, TaskHistory, EventCard, Employee, CardApproverOrder, Category, TaskAttachment
+from .models import Task, TaskHistory, EventCard, Employee, CardApproverOrder, Category, TaskAttachment, Notification
 from .forms import TaskForm
 from .decorators import role_required
 
@@ -106,6 +107,14 @@ def task_list(request):
 
     # 📋 Все карточки мероприятий (видны всем)
     cards_qs = EventCard.objects.all().prefetch_related("tasks", "categories").order_by("-start_date")
+
+    if effective_employee.role not in ("director", "deputy"):
+        cards_qs = cards_qs.filter(
+            Q(visible=True) |
+            Q(responsible_department=effective_employee.department) |
+            Q(shared_departments=effective_employee.department)
+        ).distinct()
+
     cards_all=cards_qs.count()
     # фильтр по категории
     if active_category:
@@ -211,6 +220,8 @@ def task_create_for_card(request, card_id):
 
                 # Добавляем адресата в M2M (чтобы отобразилось в списках)
                 task.recipients.add(recipient)
+
+                notify(task.assigned_employee.user, f"Вам назначена задача: {task.title}", task.get_absolute_url())
 
             messages.success(request, f"Создано {len(recipients)} задач(и) по выбранным адресатам.")
             return redirect("card_detail", card_id=card.id)
@@ -374,6 +385,12 @@ def task_execute(request, task_id):
                 comment="Исполнитель обновил выполнение, добавлены новые материалы."
             )
 
+        notify(
+            task.created_by.user,
+            f"Исполнитель отправил задачу «{task.title}» на согласование",
+            review_task.get_absolute_url()
+        )
+
         messages.success(request, "Задача отправлена (или обновлена) на согласование.")
         return redirect("task_list")
 
@@ -515,6 +532,12 @@ def task_review_approve(request, task_id):
         base_task.save(update_fields=["status", "review_comment"])
         TaskHistory.objects.create(task=base_task, employee=reviewer, action="approved", comment=comment or "Задача согласована и завершена.")
 
+    notify(
+        base_task.assigned_employee.user,
+        f"Задача «{base_task.title}» утверждена",
+        base_task.get_absolute_url()
+    )
+
     messages.success(request, "Задача утверждена и отмечена как выполненная ✅")
     return redirect("task_list")
 
@@ -546,6 +569,12 @@ def task_review_reject(request, task_id):
     base_task.review_comment = comment or "Задача возвращена на доработку."
     base_task.save(update_fields=["status", "review_comment"])
     TaskHistory.objects.create(task=base_task, employee=reviewer, action="rejected")
+
+    notify(
+        base_task.assigned_employee.user,
+        f"Задача «{base_task.title}» возвращена на доработку",
+        base_task.get_absolute_url()
+    )
 
     messages.warning(request, "Задача возвращена исполнителю на доработку 🔁")
     return redirect("task_list")
@@ -738,3 +767,30 @@ def complete_task(request, task_id):
         return redirect("task_list")
 
     return render(request, "tasks/complete_confirm.html", {"task": task})
+
+
+@login_required
+def notifications_list(request):
+    notes = request.user.notifications.order_by("-created_at")
+    unread_count = notes.filter(is_read=False).count()
+    return render(request, "notifications/list.html", {
+        "notes": notes,
+        "unread_count": unread_count
+    })
+
+
+@login_required
+def notification_read(request, note_id):
+    n = get_object_or_404(Notification, id=note_id, user=request.user)
+    n.is_read = True
+    n.save(update_fields=["is_read"])
+
+    if n.url:
+        return redirect(n.url)
+    return redirect("notifications")
+
+
+@login_required
+def notifications_read_all(request):
+    request.user.notifications.filter(is_read=False).update(is_read=True)
+    return redirect("notifications")

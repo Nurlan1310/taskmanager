@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-9^7%%f7ypwxngwb#b@bfr78!08d$rst#uve-4gtq54an)8+if7
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['taskmanager.ziyatker.org', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 CSRF_TRUSTED_ORIGINS = [
     "http://85.202.192.108:8001",
     "http://localhost:8001",
@@ -70,6 +70,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'tasks.context_processors.unread_notifications',
             ],
         },
     },

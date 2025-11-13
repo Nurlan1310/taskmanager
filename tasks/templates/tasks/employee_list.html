@@ -24,7 +24,6 @@
           <th>👤 Пользователь</th>
           <th>📋 Должность</th>
           <th>🏢 Отдел</th>
-          <th>🎯 Роль</th>
         </tr>
       </thead>
       <tbody id="employeeTable">
@@ -39,16 +38,6 @@
           </td>
           <td>{{ employee.position|default:"—" }}</td>
           <td>{{ employee.department.name|default:"—" }}</td>
-          <td>
-            <span class="badge
-              {% if employee.role == 'director' %}bg-primary
-              {% elif employee.role == 'deputy' %}bg-info
-              {% elif employee.role == 'head' %}bg-success
-              {% elif employee.role == 'senior' %}bg-warning text-dark
-              {% else %}bg-secondary{% endif %}">
-              {{ employee.get_role_display }}
-            </span>
-          </td>
         </tr>
         {% empty %}
         <tr>

@@ -239,6 +239,10 @@ class Task(models.Model):
     def __str__(self):
         return f"{self.title} ({self.get_status_display()})"
 
+    def get_absolute_url(self):
+        from django.urls import reverse
+        return reverse("task_detail", args=[self.id])
+
 
 class TaskHistory(models.Model):
     ACTION_CHOICES = [
@@ -275,3 +279,21 @@ class TaskAttachment(models.Model):
 
     def __str__(self):
         return self.file.name if self.file else self.link or "Вложение"
+
+class Notification(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="notifications"
+    )
+    message = models.CharField(max_length=500)
+    url = models.CharField(max_length=300, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user}: {self.message[:40]}"

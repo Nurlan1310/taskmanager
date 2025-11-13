@@ -9,10 +9,75 @@
     <div class="collapse navbar-collapse" id="navbarNavDropdown">
       <ul class="navbar-nav ms-auto align-items-center">
 
+        <!-- Уведомления -->
+        <li class="nav-item dropdown position-relative mx-3">
+
+            <a class="nav-link p-0 dropdown-toggle" href="{% url 'notifications' %}"
+               id="notifDropdown" role="button"
+               data-bs-toggle="dropdown" aria-expanded="false">🔔Уведомления
+
+                <i class="bi bi-bell" style="font-size: 22px;"></i>
+
+                {% if unread_notifications > 0 %}
+                <!-- Круглый бейдж как в мессенджере -->
+                <span class="badge-circle bg-danger text-white position-absolute"
+                      style="top: -2px; left: -10px;
+                             font-size: 0.55rem;
+                             padding: 3px 8px;
+                             border-radius: 100%;">
+                    {{ unread_notifications }}
+                </span>
+                {% endif %}
+            </a>
+
+            <!-- Выпадающий список -->
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm p-2"
+                aria-labelledby="notifDropdown"
+                style="width: 320px;">
+
+                {% if last_notifications %}
+                    {% for n in last_notifications %}
+                    <li class="mb-1">
+                        <a href="{{ n.link }}" class="dropdown-item small text-wrap">
+                            {{ n.message }}
+                            <div class="text-muted" style="font-size: 11px;">
+                                {{ n.created_at|date:"d.m H:i" }}
+                            </div>
+                        </a>
+                    </li>
+                    {% endfor %}
+
+                    {% if unread_notifications > last_notifications|length %}
+                    <li>
+                        <div class="dropdown-item text-center small text-muted">
+                            + ещё {{ unread_notifications|add:"-3" }} уведомлений
+                        </div>
+                    </li>
+                    {% endif %}
+
+                    <li><hr class="dropdown-divider"></li>
+
+                    <li>
+                        <a class="dropdown-item text-center fw-bold small" href="{% url 'notifications' %}">
+                            Посмотреть все →
+                        </a>
+                    </li>
+
+                {% else %}
+                    <li class="dropdown-item small text-muted text-center">
+                        Нет новых уведомлений
+                    </li>
+                {% endif %}
+            </ul>
+
+        </li>
+
+
         <!-- Задачи -->
         <li class="nav-item">
           <a class="nav-link {% if request.resolver_match.url_name == 'task_list' %}active{% endif %}" href="{% url 'task_list' %}">📋 Задачи</a>
         </li>
+
 
         <!-- Меню с выпадающим списком -->
         <li class="nav-item dropdown">

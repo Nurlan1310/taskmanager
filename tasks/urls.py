@@ -36,4 +36,9 @@ urlpatterns = [
     path("tasks/<int:task_id>/review/take/", views_tasks.task_review_take, name="task_review_take"),
     path("tasks/<int:task_id>/review/approve/", views_tasks.task_review_approve, name="task_review_approve"),
     path("tasks/<int:task_id>/review/reject/", views_tasks.task_review_reject, name="task_review_reject"),
+
+    path("notifications/", views_tasks.notifications_list, name="notifications"),
+    path("notifications/read/<int:note_id>/", views_tasks.notification_read, name="notification_read"),
+    path("notifications/read_all/", views_tasks.notifications_read_all, name="notifications_read_all"),
+
 ]

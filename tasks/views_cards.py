@@ -115,6 +115,15 @@ def card_detail(request, card_id):
     employee = request.user.employee
     effective_emp = employee.get_effective_employee()
 
+    if not card.visible:
+        if not (
+                effective_emp.role in ("director", "deputy") or
+                card.responsible_department == effective_emp.department or
+                card.shared_departments.filter(id=effective_emp.department_id).exists()
+        ):
+            messages.error(request, "У вас нет доступа к этой карточке.")
+            return redirect("task_list")
+
     # --- Базовый queryset ---
     tasks_qs = card.tasks.select_related("assigned_employee", "assigned_department", "created_by")
 
