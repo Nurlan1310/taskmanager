@@ -9,7 +9,6 @@ venv/
 *.env
 
 # Django
-/static/
 staticfiles/
 media/
 
