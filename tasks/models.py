@@ -19,6 +19,7 @@ class Category(models.Model):
 
 class Department(models.Model):
     name = models.CharField(max_length=255)
+    shortname = models.CharField(max_length=255, default="short")
 
     def __str__(self):
         return self.name

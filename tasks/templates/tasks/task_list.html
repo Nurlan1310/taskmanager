@@ -41,7 +41,7 @@
               <small class="text-muted d-block mt-1">
                 👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
                 {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
-                {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+                {% if task.created_by.department %} | {{ task.created_by.department.shortname }}{% endif %}
               </small>
             </div>
             <span class="badge bg-danger rounded-pill">Срок!</span>
@@ -76,7 +76,7 @@
               <small class="text-muted d-block mt-1">
                 👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
                 {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
-                {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+                {% if task.created_by.department %} | {{ task.created_by.department.shortname }}{% endif %}
               </small>
             </div>
           </a>
@@ -110,7 +110,7 @@
               <small class="text-muted d-block mt-1">
                 👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
                 {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
-                {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+                {% if task.created_by.department %} | {{ task.created_by.department.shortname }}{% endif %}
               </small>
             </div>
           </a>
@@ -144,7 +144,7 @@
               <small class="text-muted d-block mt-1">
                 👤 {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
                 {% if task.created_by.position %} | {{ task.created_by.position }}{% endif %}
-                {% if task.created_by.department %} | {{ task.created_by.department.name }}{% endif %}
+                {% if task.created_by.department %} | {{ task.created_by.department.shortname }}{% endif %}
               </small>
             </div>
           </a>

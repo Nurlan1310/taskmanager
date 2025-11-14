@@ -44,7 +44,7 @@ class Command(BaseCommand):
         created = 0
 
         for dept in Department.objects.all():
-            title = f"{dept.name} {month_name.capitalize()}"
+            title = f"{dept.shortname} {month_name.capitalize()}"
 
             start_date = now.replace(day=1)
             end_day = calendar.monthrange(now.year, now.month)[1]
@@ -55,7 +55,7 @@ class Command(BaseCommand):
                 responsible_department=dept,
                 start_date__year=now.year,
                 start_date__month=now.month,
-                title__icontains=dept.name,
+                title__icontains=dept.shortname,
                 visible=False
             ).exists()
 

@@ -16,7 +16,7 @@
         {% else %}
           {{ task.get_status_display }}
         {% endif %}
-        <strong>| Автор:</strong> {{ task.created_by.user.get_full_name }} |
+        <strong>| Автор:</strong> {{ task.created_by.user.get_full_name }} ({{ task.created_by.department.shortname}} ) |
         <strong>Отправлено в:</strong> {{ task.created_at|date:"H:i d.m.Y" }}
 
       </small><br>
