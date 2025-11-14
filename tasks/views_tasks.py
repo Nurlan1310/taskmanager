@@ -388,7 +388,7 @@ def task_execute(request, task_id):
         notify(
             task.created_by.user,
             f"Исполнитель отправил задачу «{task.title}» на согласование",
-            review_task.get_absolute_url()
+            task.get_absolute_url()
         )
 
         messages.success(request, "Задача отправлена (или обновлена) на согласование.")

@@ -236,6 +236,7 @@ label[for*="platnye"] {
   font-weight: 500;
   padding: 5px 10px;
   color: #fff;
+  background-color: #28a745;
   font-size: 0.8rem;
   letter-spacing: 0.2px;
   box-shadow: 0 0 4px rgba(0,0,0,0.15);
@@ -264,6 +265,7 @@ label[for*="platnye"] {
 .category-badge[data-category="plany-rabot"] {
   background-color: #0d6efd;
 }
+
 /* Hover эффект */
 .category-badge:hover {
   opacity: 0.9;
