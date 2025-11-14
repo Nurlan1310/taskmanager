@@ -233,7 +233,6 @@ def task_create_for_card(request, card_id):
         {"id": e.id, "name": f"{e.user.first_name} {e.user.last_name} ({e.position or '—'})"}
         for e in employees_qs
     ]
-
     return render(request, "tasks/create_task.html", {
         "form": form,
         "card": card,
