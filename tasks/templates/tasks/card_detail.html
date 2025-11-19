@@ -36,6 +36,9 @@
   {% if card.plan_file %}
   <!-- 🔹 Статус плана и кнопка -->
     <div class="mb-3">
+      <p><strong>Файл:</strong>
+        <a href="{{ card.plan_file }}" download>📎 {{ card.plan_file.name }}</a>
+      </p>
       <strong>Статус плана:</strong>
       <span class="badge
         {% if card.plan_status == 'approved' %}bg-success
@@ -212,6 +215,8 @@
                 <span class="badge bg-success">✅ Согласовано</span>
               {% elif forloop.counter0 == card.current_approver_index and card.plan_status == "pending" %}
                 <span class="badge bg-primary">⏳ Текущий</span>
+              {% elif forloop.counter0 == card.current_approver_index and card.plan_status == "rejected" %}
+                <span class="badge bg-danger"> Отклонено</span>
               {% else %}
                 <span class="badge bg-secondary">Ожидает</span>
               {% endif %}

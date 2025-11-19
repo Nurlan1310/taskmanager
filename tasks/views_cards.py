@@ -59,6 +59,7 @@ def card_create(request):
                         created_by=request.user.employee,
                         task_type="approval",
                         priority="urgent",
+                        plan=card.plan_file,
                     )
                 elif card.final_approver:
                     # нет согласующих → сразу финальному утверждающему
@@ -77,6 +78,7 @@ def card_create(request):
                             created_by=request.user.employee,
                             task_type="approval",
                             priority="normal",
+                            plan=card.plan_file,
                         )
 
                     card.current_approver_index = 0

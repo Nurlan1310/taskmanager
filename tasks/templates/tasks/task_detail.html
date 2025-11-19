@@ -131,8 +131,9 @@
 
 
     {% if user.employee == task.assigned_employee and task.task_type == "approval" %}
-      <!-- <a href="{% url 'approve_plan' task.id %}" class="btn btn-success btn-sm">✅ Утвердить</a>
-      <a href="{% url 'reject_plan' task.id %}" class="btn btn-danger btn-sm">❌ Вернуть на доработку</a> -->
+      <a href="{% url 'task_review' task.id %}" class="btn btn-success btn-sm">Plan review</a>
+      <a href="{% url 'approve_plan' task.id %}" class="btn btn-success btn-sm">✅ Утвердить</a>
+      <a href="{% url 'reject_plan' task.id %}" class="btn btn-danger btn-sm">❌ Вернуть на доработку</a>
       <p><strong>Исправить</strong>
     {% endif %}
 
