@@ -1,15 +1,69 @@
 {% extends "base.html" %}
+{% block title %}Согласование плана мероприятия{% endblock %}
+
 {% block content %}
 <div class="container py-4">
-  <h3>Ревью плана: {{ card.title }}</h3>
-  <p>Текущий статус: {{ card.get_plan_status_display }}</p>
-  {% if card.plan_file %}
-    <p>План: <a href="{{ card.plan_file.url }}" target="_blank">скачать</a></p>
-  {% endif %}
-  <form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button class="btn btn-success">Отправить решение</button>
-  </form>
+  <div class="card shadow-lg border-0">
+    <div class="card-body p-4">
+      <h4 class="fw-bold mb-3 text-center">🧾 Проверка плана мероприятия</h4>
+        <h5 class="mb-2">Мероприятие: {{card.title}}</h5>
+        <p class="text-muted">{{ card.description }}</p>
+        <hr>
+
+        <p><strong>Ответственный:</strong>
+          {{ card.created_by.user.last_name }} {{ card.created_by.user.first_name }}
+          {% if card.created_by.position %}
+            ({{ card.created_by.position }})
+          {% endif %}
+        </p>
+        <p><strong>Отдел:</strong>
+          {{ card.created_by.department }}
+        </p>
+        <hr>
+        <h6 class="fw-bold">📎 Файл</h6>
+        {% if card.plan_file %}
+            <p>План: <a href="{{ card.plan_file.url }}" target="_blank">скачать</a></p>
+        {% else %}
+          <p class="text-muted">Нет приложенных файлов или ссылок.</p>
+        {% endif %}
+
+        {% comment %}
+          --- Логика отображения кнопок ---
+          - Если проверяющий ещё не начал — кнопка "Взять в работу"
+          - Если взял в работу — форма с "Утвердить" и "Вернуть на доработку"
+          - Если статус уже done — просто просмотр без кнопок
+        {% endcomment %}
+
+        {% if card.plan_status == "pending" %}
+          <form method="post" action="{% url 'approve_plan' task.id %}">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Комментарий при проверке</label>
+              <textarea name="comment" rows="3" class="form-control" placeholder="Комментарий (опционально)..."></textarea>
+            </div>
+
+            <div class="text-center">
+              <button type="submit" formaction="{% url 'approve_plan' task.id %}" class="btn btn-success px-4">
+                ✅ Утвердить
+              </button>
+              <button type="submit" formaction="{% url 'reject_plan' task.id %}" class="btn btn-danger px-4 ms-2">
+                ❌ Вернуть на доработку
+              </button>
+              <a href="{% url 'task_list' %}" class="btn btn-outline-secondary ms-2">Назад</a>
+            </div>
+          </form>
+        {% else %}
+          <div class="alert alert-info text-center">
+            Проверка завершена. Дальнейшие действия недоступны.
+          </div>
+          <div class="text-center">
+            <a href="{% url 'task_list' %}" class="btn btn-outline-secondary">Назад</a>
+          </div>
+        {% endif %}
+
+
+
+    </div>
+  </div>
 </div>
 {% endblock %}

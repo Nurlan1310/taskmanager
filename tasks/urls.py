@@ -30,6 +30,7 @@ urlpatterns = [
     # --- Согласование планов ---
     path("tasks/approve/<int:task_id>/", views_tasks.approve_plan, name="approve_plan"),
     path("tasks/reject/<int:task_id>/", views_tasks.reject_plan, name="reject_plan"),
+    path("tasks/send_plan_again/<int:card_id>/", views_tasks.send_plan_again, name="send_plan_again"),
 
     # --- Проверка выполнения задач ---
     path("tasks/<int:task_id>/review/", views_tasks.task_review, name="task_review"),

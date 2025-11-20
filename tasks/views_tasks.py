@@ -155,7 +155,7 @@ def task_list(request):
 def task_detail(request, task_id):
     task = get_object_or_404(Task, id=task_id)
     employee = request.user.employee
-
+    card=task.card
     # Проверяем доступ (если нужно ограничить видимость)
     if (
         employee.role not in ("director", "deputy")
@@ -173,6 +173,7 @@ def task_detail(request, task_id):
         "task": task,
         "history": history,
         "attachments": attachments,
+        "card":card,
     }
     return render(request, "tasks/task_detail.html", context)
 
@@ -304,7 +305,7 @@ def task_execute(request, task_id):
 
     if request.method == "POST":
         description = request.POST.get("execution_comment", "").strip()
-        file = request.FILES.get("file")   # только один файл
+        file = request.FILES.get("plan_file")   # только один файл
         link = request.POST.get("link", "").strip()  # только одна ссылка
 
         # --- Определяем действие для истории ---
@@ -612,120 +613,176 @@ def approve_plan(request, task_id):
         messages.error(request, "У карточки не настроен процесс согласования.")
         return redirect("task_list")
 
-    if request.method == "POST":
-        # Проверяем, что текущий сотрудник — согласующий или утверждающий
-        current_order = next((rel for rel in approver_orders if rel.employee == effective_emp), None)
-        is_final_approver = card.final_approver == effective_emp
+    # Проверяем, что текущий сотрудник — согласующий или утверждающий
+    current_order = next((rel for rel in approver_orders if rel.employee == effective_emp), None)
+    is_final_approver = card.final_approver == effective_emp
 
-        if not current_order and not is_final_approver:
-            messages.error(request, "Вы не являетесь согласующим для этого плана.")
-            return redirect("task_list")
+    if not current_order and not is_final_approver:
+        messages.error(request, "Вы не являетесь согласующим для этого плана.")
+        return redirect("task_list")
 
-        # Завершаем текущую задачу
-        task.status = "done"
-        task.completed_at = timezone.now()
-        task.save(update_fields=["status", "completed_at"])
+    # Завершаем текущую задачу
+    task.status = "done"
+    task.completed_at = timezone.now()
+    task.save(update_fields=["status", "completed_at"])
 
-        TaskHistory.objects.create(task=task, employee=effective_emp, action="approved")
+    TaskHistory.objects.create(task=task, employee=effective_emp, action="approved")
 
-        # --- Если утверждающий (director/deputy) утверждает окончательно ---
-        if is_final_approver:
+    # --- Если утверждающий (director/deputy) утверждает окончательно ---
+    if is_final_approver:
+        card.plan_status = "approved"
+        card.plan_approved_at = timezone.now()
+        card.visible = True
+        card.is_fully_approved = True
+        card.current_approver_index = total_approvers + 1
+        card.save(update_fields=[
+            "plan_status", "plan_approved_at", "visible", "is_fully_approved", "current_approver_index"
+        ])
+        messages.success(request, "План утверждён финальным утверждающим ✅")
+        return redirect("task_list")
+
+    # --- Иначе — проверяем, есть ли следующий согласующий ---
+    current_index = current_order.order
+    next_order = approver_orders.filter(order=current_index + 1).first()
+
+    if next_order:
+        next_emp = next_order.employee
+        Task.objects.create(
+            title=f"Согласовать план «{card.title}»",
+            description="План прошёл предыдущего согласующего.",
+            card=card,
+            assigned_employee=next_emp,
+            created_by=effective_emp,
+            task_type="approval",
+            priority="urgent",
+            attachment=card.plan_file,
+        )
+        card.current_approver_index = current_index + 1
+        card.save(update_fields=["current_approver_index"])
+        messages.success(request, f"План согласован и передан следующему согласующему: {next_emp.user.get_full_name()}")
+    else:
+        # --- Все согласующие завершили. Проверяем, есть ли финальный утверждающий ---
+        if card.final_approver:
+            existing_task = Task.objects.filter(
+                card=card,
+                task_type="approval",
+                assigned_employee=card.final_approver
+            ).exists()
+
+            if not existing_task:
+                Task.objects.create(
+                    title=f"Утвердить план «{card.title}»",
+                    description="План прошёл все согласования и направлен на утверждение.",
+                    card=card,
+                    assigned_employee=card.final_approver,
+                    created_by=effective_emp,
+                    task_type="approval",
+                    priority="urgent",
+                    attachment=card.plan_file,
+                )
+                card.current_approver_index = total_approvers
+                card.save(update_fields=["current_approver_index"])
+                messages.success(request,
+                                f"План согласован и направлен утверждающему ({card.final_approver.user.get_full_name()}).")
+            else:
+                messages.info(request, "Задача для утверждающего уже существует, пропускаем дублирование.")
+
+        else:
+            # --- Если финального утверждающего нет, завершаем полностью ---
             card.plan_status = "approved"
             card.plan_approved_at = timezone.now()
             card.visible = True
             card.is_fully_approved = True
-            card.current_approver_index = total_approvers + 1
+            card.current_approver_index = total_approvers
             card.save(update_fields=[
                 "plan_status", "plan_approved_at", "visible", "is_fully_approved", "current_approver_index"
             ])
-            messages.success(request, "План утверждён финальным утверждающим ✅")
-            return redirect("task_list")
+            messages.success(request, "План окончательно согласован ✅")
+            notify(card.created_by.user, f"Ваш план мероприятия утвержден: {card.title}", card.get_absolute_url())
 
-        # --- Иначе — проверяем, есть ли следующий согласующий ---
-        current_index = current_order.order
-        next_order = approver_orders.filter(order=current_index + 1).first()
+    return redirect("task_list")
 
-        if next_order:
-            next_emp = next_order.employee
-            Task.objects.create(
-                title=f"Согласовать план «{card.title}»",
-                description="План прошёл предыдущего согласующего.",
-                card=card,
-                assigned_employee=next_emp,
-                created_by=effective_emp,
-                task_type="approval",
-                priority="normal",
-            )
-            card.current_approver_index = current_index + 1
-            card.save(update_fields=["current_approver_index"])
-            messages.success(request, f"План согласован и передан следующему согласующему: {next_emp.user.get_full_name()}")
-        else:
-            # --- Все согласующие завершили. Проверяем, есть ли финальный утверждающий ---
-            if card.final_approver:
-                existing_task = Task.objects.filter(
-                    card=card,
-                    task_type="approval",
-                    assigned_employee=card.final_approver
-                ).exists()
-
-                if not existing_task:
-                    Task.objects.create(
-                        title=f"Утвердить план «{card.title}»",
-                        description="План прошёл все согласования и направлен на утверждение.",
-                        card=card,
-                        assigned_employee=card.final_approver,
-                        created_by=effective_emp,
-                        task_type="approval",
-                        priority="urgent",
-                    )
-                    card.current_approver_index = total_approvers
-                    card.save(update_fields=["current_approver_index"])
-                    messages.success(request,
-                                     f"План согласован и направлен утверждающему ({card.final_approver.user.get_full_name()}).")
-                else:
-                    messages.info(request, "Задача для утверждающего уже существует, пропускаем дублирование.")
-
-            else:
-                # --- Если финального утверждающего нет, завершаем полностью ---
-                card.plan_status = "approved"
-                card.plan_approved_at = timezone.now()
-                card.visible = True
-                card.is_fully_approved = True
-                card.current_approver_index = total_approvers
-                card.save(update_fields=[
-                    "plan_status", "plan_approved_at", "visible", "is_fully_approved", "current_approver_index"
-                ])
-                messages.success(request, "План окончательно согласован ✅")
-
-        return redirect("task_list")
-
-    return render(request, "tasks/approve_plan.html", {"task": task, "card": card})
+    # return render(request, "tasks/approve_plan.html", {"task": task, "card": card})
 
 
 
 
 @login_required
+@transaction.atomic
 def reject_plan(request, task_id):
     task = get_object_or_404(Task, id=task_id)
-    emp = request.user.employee
-    effective_emp = emp.get_effective_employee()
+    reviewer = request.user.employee
     card = task.card
 
     if request.method == "POST":
-        reason = request.POST.get("reason", "")
-        task.status = "rejected"
-        task.save(update_fields=["status"])
-        TaskHistory.objects.create(task=task, employee=effective_emp, action="rejected")
+        reason = request.POST.get("comment", "")
 
+        # Закрываем задачу согласующего
+        task.status = "done"
+        task.save(update_fields=["status"])
+
+        TaskHistory.objects.create(
+            task=task,
+            employee=reviewer,
+            action="rejected",
+            comment=reason or "План возвращён на доработку."
+        )
+
+        # Переводим карточку в режим ДОРАБОТКИ
         card.plan_status = "rejected"
         card.plan_rejected_reason = reason
         card.visible = False
-        card.save(update_fields=["plan_status", "plan_rejected_reason", "visible"])
+        card.save(update_fields=[
+            "plan_status", "plan_rejected_reason", "visible"
+        ])
+        notify(card.created_by.user, f"Ваш план мероприятия возвращен на доработку: {card.title}", card.get_absolute_url())
 
-        messages.warning(request, "План отклонён.")
+
+        messages.warning(request, "План возвращён автору на доработку.")
         return redirect("task_list")
 
     return render(request, "tasks/reject_plan.html", {"task": task, "card": card})
+
+@login_required
+@transaction.atomic
+def send_plan_again(request, card_id):
+    card = get_object_or_404(EventCard, id=card_id)
+    emp = request.user.employee
+    if card.created_by != emp:
+        messages.error(request, "Вы не являетесь создателем карточки.")
+        return redirect("card_detail", card_id=card.id)
+
+    if request.method == "POST":
+        new_file = request.FILES.get("plan_file")
+
+        if new_file:
+            card.plan_file = new_file
+
+        card.plan_status = "pending"
+        card.visible = False
+        card.current_approver_index = 0
+        card.save()
+        # Первый согласующий
+        first_rel = card.cardapproverorder_set.order_by("order").first()
+        if first_rel:
+            Task.objects.create(
+                title=f"Согласовать план «{card.title}»",
+                description="План обновлён автором после доработки.",
+                status="new",
+                task_type="approval",
+                assigned_employee=first_rel.employee,
+                created_by=emp,
+                priority="urgent",
+                card=card,
+                attachment=new_file,
+            )
+        notify(first_rel.employee.user, f"Инициатор отправил план мероприятия: {card.title} на согласование" , card.get_absolute_url())
+
+        messages.success(request, "План отправлен на повторное согласование.")
+        return redirect("card_detail", card_id=card.id)
+
+    return redirect("card_detail", card_id=card.id)
+
 
 
 # =============================

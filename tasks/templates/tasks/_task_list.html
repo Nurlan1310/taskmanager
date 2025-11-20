@@ -31,7 +31,7 @@
     </div>
 
     <span class="badge rounded-pill
-      {% if task.task_type == 'approval' %}bg-success
+      {% if task.task_type == 'approval' %}bg-primary
       {% elif task.task_type == 'review' %}bg-primary
       {% elif task.status == 'in_progress' %}bg-warning text-dark
       {% elif task.status == 'under_review' %}bg-purple
@@ -39,13 +39,8 @@
       {% elif task.status == 'new' %}bg-secondary
       {% elif task.status == 'done' %}bg-success
       {% elif task.status == 'rejected' %}bg-danger{% endif %}">
-      {% if task.status == "done" %}
-        Выполнена
-      {% elif task.task_type == "approval" %}
-        На согласовании
-      {% else %}
-        {{ task.get_status_display }}
-      {% endif %}
+      {{ task.get_status_display }}
+
     </span>
   </li>
   {% endfor %}

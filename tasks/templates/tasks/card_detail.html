@@ -56,6 +56,25 @@
     </div>
   {% endif %}
 
+
+    {% if card.plan_status == "rejected" and card.plan_rejected_reason %}
+        <hr>
+        <h5 class="fw-semibold">💬 Комментарий проверяющего</h5>
+        <div class="alert alert-info">{{ card.plan_rejected_reason }}</div>
+    {% endif %}
+
+    {% if card.plan_status == "rejected" and card.created_by == user.employee %}
+    <form action="{% url 'send_plan_again' card.id %}" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <label class="form-label fw-semibold">Загрузить исправленный план</label>
+        <input type="file" name="plan_file" class="form-control mb-2" required>
+
+        <button class="btn btn-primary">📤 Отправить на повторное согласование</button>
+    </form>
+    {% endif %}
+
+
+
   {% if card.shared_departments.exists %}
       <p>
         <strong>Расшарено с отделами:</strong>

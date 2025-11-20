@@ -129,12 +129,16 @@
       <a href="{% url 'task_execute' task.id %}" class="btn btn-success">✅ Исполнить</a>
     {% endif %}
 
-
-    {% if user.employee == task.assigned_employee and task.task_type == "approval" %}
-      <a href="{% url 'task_review' task.id %}" class="btn btn-success btn-sm">Plan review</a>
-      <a href="{% url 'approve_plan' task.id %}" class="btn btn-success btn-sm">✅ Утвердить</a>
-      <a href="{% url 'reject_plan' task.id %}" class="btn btn-danger btn-sm">❌ Вернуть на доработку</a>
-      <p><strong>Исправить</strong>
+    {% if user.employee == task.assigned_employee and task.task_type == "approval" and task.status == "new"%}
+<!--      <a href="{% url 'plan_review' card.id %}" class="btn btn-primary mt-2">🔍 Просмотреть план</a>-->
+      <div class="d-flex gap-2">
+          <a href="{% url 'approve_plan' task.id %}" class="btn btn-success w-50">
+              ✅ Утвердить
+          </a>
+          <a href="{% url 'reject_plan' task.id %}" class="btn btn-danger w-50">
+              ❌ Вернуть на доработку
+          </a>
+      </div>
     {% endif %}
 
     {% if user.employee == task.assigned_employee and task.task_type == "review" and task.status == "in_progress" %}

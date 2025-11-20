@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 import json
-from .models import EventCard, Employee, Department, CardApproverOrder, Task
+from .models import EventCard, Employee, Department, CardApproverOrder, Task, TaskAttachment
 from .forms import EventCardForm, PlanReviewForm
 from .decorators import role_required
 from django.db.models import Q, Case, When, IntegerField
@@ -17,7 +17,7 @@ def card_create(request):
         if form.is_valid():
             card = form.save(commit=False)
             card.created_by = request.user.employee
-
+            file = request.FILES.get("file")  # только один файл
             # Определяем статус карточки в зависимости от наличия плана
             if card.has_plan and card.plan_file:
                 card.plan_status = "pending"
@@ -44,13 +44,11 @@ def card_create(request):
             # --- Создаём первую задачу на согласование / утверждение ---
             if card.has_plan and card.plan_file:
                 approver_orders = CardApproverOrder.objects.filter(card=card).order_by("order")
-
                 if approver_orders.exists():
                     # есть согласующие → первая задача идёт первому
                     first_approver = approver_orders.first().employee
                     card.current_approver_index = 0
                     card.save(update_fields=["current_approver_index"])
-
                     Task.objects.create(
                         title=f"Согласовать план мероприятия «{card.title}»",
                         description="Необходимо рассмотреть загруженный план и утвердить или отклонить.",
@@ -59,7 +57,7 @@ def card_create(request):
                         created_by=request.user.employee,
                         task_type="approval",
                         priority="urgent",
-                        plan=card.plan_file,
+                        attachment=file,
                     )
                 elif card.final_approver:
                     # нет согласующих → сразу финальному утверждающему
@@ -78,7 +76,7 @@ def card_create(request):
                             created_by=request.user.employee,
                             task_type="approval",
                             priority="normal",
-                            plan=card.plan_file,
+                            attachment=file,
                         )
 
                     card.current_approver_index = 0
