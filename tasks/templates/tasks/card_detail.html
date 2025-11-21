@@ -135,28 +135,15 @@
 
   <!-- Список задач -->
   <!-- Фильтры задач -->
-    <div class="btn-group mb-3" id="task-filters" role="group">
-      <button data-filter="all" class="btn btn-outline-secondary {% if filter_type == 'all' %}active{% endif %}">Все</button>
-      <button data-filter="approval" class="btn btn-outline-primary">Согласования</button>
-      <button data-filter="urgent" class="btn btn-outline-danger">Срочные</button>
-      <button data-filter="new" class="btn btn-outline-dark">Новые</button>
-      <button data-filter="in_progress" class="btn btn-outline-warning">В работе</button>
-      <button data-filter="done" class="btn btn-outline-success">Выполненные</button>
-    </div>
+    {% include "tasks/_task_list_wrapper.html" %}
 
-    <!-- Контейнер для списка -->
-    <div id="task-list">
-      {% include 'tasks/_task_list.html' %}
-    </div>
 
-    <!-- JS -->
     <script>
     document.addEventListener("DOMContentLoaded", () => {
       const statusFilters = document.querySelectorAll("#task-filters button");
       const ownerFilters = document.querySelectorAll(".category-tab");
       const list = document.getElementById("task-list");
 
-      // Значения по умолчанию из контекста Django
       let currentOwner = "{{ owner_filter }}";
       let currentStatus = "{{ filter_type }}";
 
@@ -164,25 +151,39 @@
         const resp = await fetch(`?owner=${owner}&filter=${status}&ajax=1`);
         const html = await resp.text();
         list.innerHTML = html;
+
         history.replaceState(null, "", `?owner=${owner}&filter=${status}`);
+
+        // 🔥 После загрузки обновлённого списка — обновляем счётчики
+        updateCounters(owner);
       }
 
-      // --- Обработчик клика по фильтрам "Мои / Мой отдел / Все"
+      async function updateCounters(owner) {
+        const resp = await fetch(`?owner=${owner}&count=1`);
+        const data = await resp.json();
+
+        // Обновляем цифры в кнопках
+        document.querySelector('[data-filter="all"] .badge').innerText = data.total;
+        document.querySelector('[data-filter="review"] .badge').innerText = data.review;
+        document.querySelector('[data-filter="urgent"] .badge').innerText = data.urgent;
+        document.querySelector('[data-filter="new"] .badge').innerText = data.new;
+        document.querySelector('[data-filter="in_progress"] .badge').innerText = data.in_progress;
+        document.querySelector('[data-filter="done"] .badge').innerText = data.done;
+      }
+
+      // --- Клик по фильтрам владельца ---
       ownerFilters.forEach(tab => {
         tab.addEventListener("click", e => {
           e.preventDefault();
-
-          // Меняем активный фильтр визуально
           ownerFilters.forEach(t => t.classList.remove("active"));
           tab.classList.add("active");
 
-          // Обновляем текущее значение и перерисовываем задачи
           currentOwner = tab.getAttribute("href").split("=")[1];
           updateList(currentOwner, currentStatus);
         });
       });
 
-      // --- Обработчик клика по фильтрам задач ("все", "новые", "в работе" и т.п.)
+      // --- Клик по фильтрам статусов ---
       statusFilters.forEach(btn => {
         btn.addEventListener("click", e => {
           e.preventDefault();
@@ -193,8 +194,12 @@
           updateList(currentOwner, currentStatus);
         });
       });
+
+      // 🔥 Первый запуск: загрузить правильные счётчики
+      updateCounters(currentOwner);
     });
     </script>
+
 
 
 

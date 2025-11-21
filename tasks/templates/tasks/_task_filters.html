@@ -1,0 +1,27 @@
+<div class="btn-group mb-3" id="task-filters" role="group">
+
+  <button data-filter="all" class="btn btn-outline-secondary {% if filter_type == 'all' %}active{% endif %}">
+      Все <span class="badge bg-secondary">({{ stats.total }})</span>
+  </button>
+
+  <button data-filter="review" class="btn btn-outline-primary {% if filter_type == 'review' %}active{% endif %}">
+      Согласования <span class="badge bg-secondary">({{ stats.review }})</span>
+  </button>
+
+  <button data-filter="urgent" class="btn btn-outline-danger {% if filter_type == 'urgent' %}active{% endif %}">
+      Срочные <span class="badge bg-secondary">({{ stats.urgent }})</span>
+  </button>
+
+  <button data-filter="new" class="btn btn-outline-dark {% if filter_type == 'new' %}active{% endif %}">
+      Новые <span class="badge bg-secondary">({{ stats.new }})</span>
+  </button>
+
+  <button data-filter="in_progress" class="btn btn-outline-warning {% if filter_type == 'in_progress' %}active{% endif %}">
+      В работе <span class="badge bg-secondary">({{ stats.in_progress }})</span>
+  </button>
+
+  <button data-filter="done" class="btn btn-outline-success {% if filter_type == 'done' %}active{% endif %}">
+      Выполненные <span class="badge bg-secondary">({{ stats.done }})</span>
+  </button>
+
+</div>

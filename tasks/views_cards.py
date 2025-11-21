@@ -1,3 +1,4 @@
+from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.utils import timezone
@@ -147,24 +148,34 @@ def card_detail(request, card_id):
         )
     # если "all" — ничего не фильтруем
 
+    # --- Счётчики задач по статусам и типам (учитывают owner_filter) ---
+    stats = {
+        "total": tasks_qs.count(),
+        "new": tasks_qs.filter(task_type="regular", status="new").count(),
+        "in_progress": tasks_qs.filter(task_type="regular", status="in_progress").count(),
+        "done": tasks_qs.filter(task_type="regular", status="done").count(),
+        "urgent": tasks_qs.filter(task_type="regular", priority="urgent").exclude(status="done").count(),
+        "review": tasks_qs.filter(task_type__in=["approval","review"]).count(),
+    }
+
     # --- Фильтрация по статусу ---
     filter_type = request.GET.get("filter", "all")
 
     if filter_type == "review":
-        tasks_qs = tasks_qs.filter(task_type="review").exclude(status="done")
+        tasks_qs = tasks_qs.filter(task_type__in=["approval","review"])
     elif filter_type == "urgent":
-        tasks_qs = tasks_qs.filter(priority="urgent").exclude(status="done")
+        tasks_qs = tasks_qs.filter(task_type="regular", priority="urgent").exclude(status="done")
     elif filter_type == "new":
-        tasks_qs = tasks_qs.filter(status="new")
+        tasks_qs = tasks_qs.filter(task_type="regular", status="new")
     elif filter_type == "in_progress":
-        tasks_qs = tasks_qs.filter(status="in_progress")
+        tasks_qs = tasks_qs.filter(task_type="regular", status="in_progress")
     elif filter_type == "done":
-        tasks_qs = tasks_qs.filter(status="done")
+        tasks_qs = tasks_qs.filter(task_type="regular", status="done")
 
     # --- Сортировка ---
     tasks = tasks_qs.order_by(
         Case(
-            When(task_type="approval", then=0),
+            When(task_type="all", then=0),
             When(task_type="review", then=1),
             When(priority="urgent", then=2),
             When(status="new", then=3),
@@ -182,14 +193,21 @@ def card_detail(request, card_id):
 
     # --- AJAX ---
     if request.GET.get("ajax") == "1":
-        return render(request, "tasks/_task_list.html", {"tasks": tasks})
+        return render(request, "tasks/_task_list.html", {
+            "tasks": tasks,
+            "stats": stats,
+            "filter_type": filter_type,
+        })
+    if request.GET.get("count") == "1":
+        return JsonResponse(stats)
 
     return render(request, "tasks/card_detail.html", {
         "card": card,
         "tasks": tasks,
         "progress": progress,
         "filter_type": filter_type,
-        "owner_filter": owner_filter,  # 👈 добавим в контекст
+        "owner_filter": owner_filter,
+        "stats": stats,    # 👈 добавим в контекст
     })
 
 
