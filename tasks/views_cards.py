@@ -7,6 +7,8 @@ from .models import EventCard, Employee, Department, CardApproverOrder, Task, Ta
 from .forms import EventCardForm, PlanReviewForm
 from .decorators import role_required
 from django.db.models import Q, Case, When, IntegerField
+from tasks.utils.notifications import notify
+
 
 
 # Карточки мероприятий
@@ -49,7 +51,7 @@ def card_create(request):
                     first_approver = approver_orders.first().employee
                     card.current_approver_index = 0
                     card.save(update_fields=["current_approver_index"])
-                    Task.objects.create(
+                    task=Task.objects.create(
                         title=f"Согласовать план мероприятия «{card.title}»",
                         description="Необходимо рассмотреть загруженный план и утвердить или отклонить.",
                         card=card,
@@ -59,6 +61,8 @@ def card_create(request):
                         priority="urgent",
                         attachment=file,
                     )
+                    notify(first_approver.user, f"Вам поступило согласование плана: «{card.title}»", task.get_absolute_url() )
+
                 elif card.final_approver:
                     # нет согласующих → сразу финальному утверждающему
                     existing_task = Task.objects.filter(
@@ -68,7 +72,7 @@ def card_create(request):
                     ).exists()
 
                     if not existing_task:
-                        Task.objects.create(
+                        task=Task.objects.create(
                             title=f"Утвердить план мероприятия «{card.title}»",
                             description="План направлен напрямую утверждающему (без промежуточных согласующих).",
                             card=card,
@@ -78,6 +82,7 @@ def card_create(request):
                             priority="normal",
                             attachment=file,
                         )
+                        notify(card.final_approver.user,f"План мероприятия «{card.title}» направлен на утверждение",task.get_absolute_url() )
 
                     card.current_approver_index = 0
                     card.save(update_fields=["current_approver_index"])

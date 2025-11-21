@@ -155,11 +155,25 @@ class EventCard(models.Model):
 
     @property
     def progress(self):
-        total = self.tasks.count()
+        # учитываем только обычные задачи
+        regular_tasks = self.tasks.filter(task_type="regular")
+        total = regular_tasks.count()
+
         if total == 0:
-            return 0
-        done = self.tasks.filter(status='done').count()
-        return round((done / total) * 100, 1)
+            return {
+                "total": 0,
+                "done": 0,
+                "percent": 0
+            }
+
+        done = regular_tasks.filter(status="done").count()
+        percent = round((done / total) * 100, 1)
+
+        return {
+            "total": total,
+            "done": done,
+            "percent": percent
+        }
 
     # helper: кто является "ответственным" по карточке - отдел и инициатор
     def is_user_responsible(self, user):

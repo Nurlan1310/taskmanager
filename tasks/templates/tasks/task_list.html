@@ -212,9 +212,10 @@
 
           <!-- Прогресс -->
           <div class="progress mb-3" style="height: 10px;">
-            <div class="progress-bar bg-success" style="width: {{ card.progress }}%;"></div>
+            <div class="progress-bar bg-success" style="width: {{ card.progress.percent }}%;"></div>
           </div>
-          <small class="text-muted mb-3">Выполнено: {{ card.progress }}%</small>
+          <small class="text-muted mb-3">Выполнено: {{ card.progress.done }}/{{ card.progress.total }}
+          ({{ card.progress.percent }}%)</small>
 
           <!-- Счётчики задач -->
             <div class="d-flex gap-2 mb-3">

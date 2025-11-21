@@ -38,7 +38,7 @@
                 {% if last_notifications %}
                     {% for n in last_notifications %}
                     <li class="mb-1">
-                        <a href="{{ n.link }}" class="dropdown-item small text-wrap">
+                        <a href="{% url 'notification_read' n.id %}" class="dropdown-item small text-wrap">
                             {{ n.message }}
                             <div class="text-muted" style="font-size: 11px;">
                                 {{ n.created_at|date:"d.m H:i" }}
@@ -66,6 +66,12 @@
                 {% else %}
                     <li class="dropdown-item small text-muted text-center">
                         Нет новых уведомлений
+                    </li>
+
+                    <li>
+                        <a class="dropdown-item text-center fw-bold small" href="{% url 'notifications' %}">
+                            Посмотреть все →
+                        </a>
                     </li>
                 {% endif %}
             </ul>

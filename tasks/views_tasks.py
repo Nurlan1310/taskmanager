@@ -638,6 +638,7 @@ def approve_plan(request, task_id):
         card.save(update_fields=[
             "plan_status", "plan_approved_at", "visible", "is_fully_approved", "current_approver_index"
         ])
+        notify(card.created_by.user, f"Ваш план мероприятия утвержден: {card.title}", card.get_absolute_url())
         messages.success(request, "План утверждён финальным утверждающим ✅")
         return redirect("task_list")
 
@@ -647,12 +648,12 @@ def approve_plan(request, task_id):
 
     if next_order:
         next_emp = next_order.employee
-        Task.objects.create(
+        task_n=Task.objects.create(
             title=f"Согласовать план «{card.title}»",
             description="План прошёл предыдущего согласующего.",
             card=card,
             assigned_employee=next_emp,
-            created_by=effective_emp,
+            created_by=card.created_by,
             task_type="approval",
             priority="urgent",
             attachment=card.plan_file,
@@ -660,6 +661,8 @@ def approve_plan(request, task_id):
         card.current_approver_index = current_index + 1
         card.save(update_fields=["current_approver_index"])
         messages.success(request, f"План согласован и передан следующему согласующему: {next_emp.user.get_full_name()}")
+        notify(next_emp.user, f"План мероприятия «{card.title}» направлен на утверждение", task_n.get_absolute_url())
+
     else:
         # --- Все согласующие завершили. Проверяем, есть ли финальный утверждающий ---
         if card.final_approver:
@@ -670,20 +673,21 @@ def approve_plan(request, task_id):
             ).exists()
 
             if not existing_task:
-                Task.objects.create(
+                task_n=Task.objects.create(
                     title=f"Утвердить план «{card.title}»",
                     description="План прошёл все согласования и направлен на утверждение.",
                     card=card,
                     assigned_employee=card.final_approver,
-                    created_by=effective_emp,
+                    created_by=card.created_by,
                     task_type="approval",
                     priority="urgent",
                     attachment=card.plan_file,
                 )
                 card.current_approver_index = total_approvers
                 card.save(update_fields=["current_approver_index"])
-                messages.success(request,
-                                f"План согласован и направлен утверждающему ({card.final_approver.user.get_full_name()}).")
+                messages.success(request,f"План согласован и направлен утверждающему ({card.final_approver.user.get_full_name()}).")
+                notify(task_n.card.final_approver.user, f"План мероприятия «{card.title}» направлен на утверждение",task_n.get_absolute_url())
+
             else:
                 messages.info(request, "Задача для утверждающего уже существует, пропускаем дублирование.")
 
@@ -765,7 +769,7 @@ def send_plan_again(request, card_id):
         # Первый согласующий
         first_rel = card.cardapproverorder_set.order_by("order").first()
         if first_rel:
-            Task.objects.create(
+            task=Task.objects.create(
                 title=f"Согласовать план «{card.title}»",
                 description="План обновлён автором после доработки.",
                 status="new",
@@ -776,7 +780,7 @@ def send_plan_again(request, card_id):
                 card=card,
                 attachment=new_file,
             )
-        notify(first_rel.employee.user, f"Инициатор отправил план мероприятия: {card.title} на согласование" , card.get_absolute_url())
+        notify(first_rel.employee.user, f"Инициатор отправил план мероприятия: {card.title} на согласование" , task.get_absolute_url())
 
         messages.success(request, "План отправлен на повторное согласование.")
         return redirect("card_detail", card_id=card.id)
