@@ -152,7 +152,7 @@ def card_detail(request, card_id):
     stats = {
         "total": tasks_qs.count(),
         "new": tasks_qs.filter(task_type="regular", status="new").count(),
-        "in_progress": tasks_qs.filter(task_type="regular", status="in_progress").count(),
+        "in_progress": tasks_qs.filter(task_type="regular", status__in=["in_progress","sent_for_review","under_review"]).count(),
         "done": tasks_qs.filter(task_type="regular", status="done").count(),
         "urgent": tasks_qs.filter(task_type="regular", priority="urgent").exclude(status="done").count(),
         "review": tasks_qs.filter(task_type__in=["approval","review"]).count(),
@@ -168,7 +168,7 @@ def card_detail(request, card_id):
     elif filter_type == "new":
         tasks_qs = tasks_qs.filter(task_type="regular", status="new")
     elif filter_type == "in_progress":
-        tasks_qs = tasks_qs.filter(task_type="regular", status="in_progress")
+        tasks_qs = tasks_qs.filter(task_type="regular", status__in=["in_progress","sent_for_review","under_review"])
     elif filter_type == "done":
         tasks_qs = tasks_qs.filter(task_type="regular", status="done")
 
