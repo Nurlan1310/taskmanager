@@ -37,7 +37,7 @@
   <!-- 🔹 Статус плана и кнопка -->
     <div class="mb-3">
       <p><strong>Файл:</strong>
-        <a href="{{ card.plan_file }}" download>📎 {{ card.plan_file.name }}</a>
+        <a href="{{ card.plan_file.url }}" target="_blank">📎 {{ card.plan_file.name|cut:"event_plans/" }}</a>
       </p>
       <strong>Статус плана:</strong>
       <span class="badge
@@ -264,6 +264,8 @@
             {{ card.final_approver.user.get_full_name|default:card.final_approver.user.username }}
             {% if card.is_fully_approved %}
               <span class="badge bg-success ms-2">✅ Утверждён</span>
+            {% elif card.current_approver_index == total and card.plan_status == "rejected" %}
+              <span class="badge bg-danger text-dark ms-2"> Отклонено</span>
             {% elif card.current_approver_index == total %}
               <span class="badge bg-warning text-dark ms-2">⏳ Ожидает утверждения</span>
             {% endif %}

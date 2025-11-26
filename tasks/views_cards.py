@@ -20,7 +20,7 @@ def card_create(request):
         if form.is_valid():
             card = form.save(commit=False)
             card.created_by = request.user.employee
-            file = request.FILES.get("file")  # только один файл
+            file = request.FILES.get("plan_file")  # только один файл
             # Определяем статус карточки в зависимости от наличия плана
             if card.has_plan and card.plan_file:
                 card.plan_status = "pending"

@@ -305,7 +305,7 @@ def task_execute(request, task_id):
 
     if request.method == "POST":
         description = request.POST.get("execution_comment", "").strip()
-        file = request.FILES.get("plan_file")   # только один файл
+        file = request.FILES.get("file")   # только один файл
         link = request.POST.get("link", "").strip()  # только одна ссылка
 
         # --- Определяем действие для истории ---
@@ -666,30 +666,20 @@ def approve_plan(request, task_id):
     else:
         # --- Все согласующие завершили. Проверяем, есть ли финальный утверждающий ---
         if card.final_approver:
-            existing_task = Task.objects.filter(
+            task_n=Task.objects.create(
+                title=f"Утвердить план «{card.title}»",
+                description="План прошёл все согласования и направлен на утверждение.",
                 card=card,
+                assigned_employee=card.final_approver,
+                created_by=card.created_by,
                 task_type="approval",
-                assigned_employee=card.final_approver
-            ).exists()
-
-            if not existing_task:
-                task_n=Task.objects.create(
-                    title=f"Утвердить план «{card.title}»",
-                    description="План прошёл все согласования и направлен на утверждение.",
-                    card=card,
-                    assigned_employee=card.final_approver,
-                    created_by=card.created_by,
-                    task_type="approval",
-                    priority="urgent",
-                    attachment=card.plan_file,
-                )
-                card.current_approver_index = total_approvers
-                card.save(update_fields=["current_approver_index"])
-                messages.success(request,f"План согласован и направлен утверждающему ({card.final_approver.user.get_full_name()}).")
-                notify(task_n.card.final_approver.user, f"План мероприятия «{card.title}» направлен на утверждение",task_n.get_absolute_url())
-
-            else:
-                messages.info(request, "Задача для утверждающего уже существует, пропускаем дублирование.")
+                priority="urgent",
+                attachment=card.plan_file,
+            )
+            card.current_approver_index = total_approvers
+            card.save(update_fields=["current_approver_index"])
+            messages.success(request,f"План согласован и направлен утверждающему ({card.final_approver.user.get_full_name()}).")
+            notify(task_n.card.final_approver.user, f"План мероприятия «{card.title}» направлен на утверждение",task_n.get_absolute_url())
 
         else:
             # --- Если финального утверждающего нет, завершаем полностью ---
@@ -707,8 +697,6 @@ def approve_plan(request, task_id):
     return redirect("task_list")
 
     # return render(request, "tasks/approve_plan.html", {"task": task, "card": card})
-
-
 
 
 @login_required
@@ -780,8 +768,21 @@ def send_plan_again(request, card_id):
                 card=card,
                 attachment=new_file,
             )
-        notify(first_rel.employee.user, f"Инициатор отправил план мероприятия: {card.title} на согласование" , task.get_absolute_url())
-
+            notify(first_rel.employee.user, f"Инициатор отправил план мероприятия: {card.title} на согласование" , task.get_absolute_url())
+        elif card.final_approver:
+            task = Task.objects.create(
+                title=f"Утвердить план «{card.title}»",
+                description="План обновлён автором после доработки.",
+                status="new",
+                task_type="approval",
+                assigned_employee=card.final_approver,
+                created_by=emp,
+                priority="urgent",
+                card=card,
+                attachment=new_file,
+            )
+            notify(card.final_approver.user, f"Инициатор отправил план мероприятия: {card.title} на согласование",
+                   task.get_absolute_url())
         messages.success(request, "План отправлен на повторное согласование.")
         return redirect("card_detail", card_id=card.id)
 
