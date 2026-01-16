@@ -1,0 +1,639 @@
+/* === TaskManager Modern Styles === */
+
+/* Цветовая схема */
+:root {
+    --primary-color: #2066b0;
+    --primary-hover: #1a5490;
+    --sidebar-bg: #2c3e50;
+    --sidebar-hover: #34495e;
+    --content-bg: #f5f7fa;
+    --card-bg: #ffffff;
+    --text-primary: #2c3e50;
+    --text-secondary: #7f8c8d;
+    --border-color: #e1e8ed;
+    --success-color: #27ae60;
+    --warning-color: #f39c12;
+    --danger-color: #e74c3c;
+    --info-color: #3498db;
+}
+
+/* Карточки задач - современный дизайн */
+.task-card-modern {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transition: all 0.3s ease;
+    border-left: 4px solid transparent;
+}
+
+.task-card-modern:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    transform: translateY(-2px);
+}
+
+.task-card-modern.urgent {
+    border-left-color: var(--danger-color);
+}
+
+.task-card-modern.approval {
+    border-left-color: var(--info-color);
+}
+
+.task-card-modern.in-progress {
+    border-left-color: var(--warning-color);
+}
+
+.task-card-modern.done {
+    border-left-color: var(--success-color);
+}
+
+/* Статусы задач */
+.status-badge-modern {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    color: white;
+}
+
+.status-new-modern {
+    background: #95a5a6;
+}
+
+.status-in_progress-modern {
+    background: var(--warning-color);
+}
+
+.status-done-modern {
+    background: var(--success-color);
+}
+
+.status-under_review-modern {
+    background: var(--info-color);
+}
+
+.status-sent_for_review-modern {
+    background: #9b59b6;
+}
+
+.status-rejected-modern {
+    background: var(--danger-color);
+}
+
+/* Карточки мероприятий */
+.event-card-modern {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transition: all 0.3s ease;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.event-card-modern:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    transform: translateY(-4px);
+}
+
+.event-card-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    line-height: 1.4;
+}
+
+.event-card-title a {
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.event-card-title a:hover {
+    color: var(--primary-color);
+}
+
+/* Прогресс-бар */
+.progress-modern {
+    height: 8px;
+    background: #ecf0f1;
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 12px 0;
+}
+
+.progress-bar-modern {
+    height: 100%;
+    background: linear-gradient(90deg, var(--success-color) 0%, #2ecc71 100%);
+    border-radius: 10px;
+    transition: width 0.3s ease;
+}
+
+/* Категории */
+.category-badge-modern {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    color: white;
+    margin-right: 8px;
+    margin-bottom: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.category-badge-modern[data-category="kursy"] {
+    background: var(--success-color);
+}
+
+.category-badge-modern[data-category="konkursy"] {
+    background: var(--info-color);
+}
+
+.category-badge-modern[data-category="goszakaz"] {
+    background: var(--danger-color);
+}
+
+.category-badge-modern[data-category="sovmestnye"] {
+    background: #e67e22;
+}
+
+.category-badge-modern[data-category="platnye"] {
+    background: #f1c40f;
+    color: var(--text-primary);
+}
+
+/* Вкладки категорий */
+.category-tab-modern {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 25px;
+    font-weight: 500;
+    color: white;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    margin-right: 10px;
+    margin-bottom: 10px;
+}
+
+.category-tab-modern:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    color: white;
+}
+
+.category-tab-modern.active {
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.3);
+    border: 2px solid rgba(255,255,255,0.5);
+}
+
+.category-tab-modern .count-badge {
+    background: rgba(255,255,255,0.25);
+    color: white;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+}
+
+/* Фильтры задач */
+.filter-group-modern {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+.filter-btn-modern {
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 2px solid var(--border-color);
+    background: white;
+    color: var(--text-primary);
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-btn-modern:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(32, 102, 176, 0.05);
+}
+
+.filter-btn-modern.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(32, 102, 176, 0.3);
+}
+
+/* Формы */
+.form-modern {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 30px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.form-label-modern {
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    display: block;
+    font-size: 14px;
+}
+
+.form-control-modern {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.2s;
+    background: white;
+}
+
+.form-control-modern:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(32, 102, 176, 0.1);
+}
+
+/* Кнопки действий */
+.action-buttons {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+}
+
+.btn-modern {
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 500;
+    transition: all 0.2s;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    text-decoration: none;
+}
+
+.btn-primary-modern {
+    background: var(--primary-color);
+    color: white;
+}
+
+.btn-primary-modern:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(32, 102, 176, 0.3);
+    color: white;
+}
+
+.btn-success-modern {
+    background: var(--success-color);
+    color: white;
+}
+
+.btn-success-modern:hover {
+    background: #229954;
+    transform: translateY(-1px);
+    color: white;
+}
+
+.btn-danger-modern {
+    background: var(--danger-color);
+    color: white;
+}
+
+.btn-danger-modern:hover {
+    background: #c0392b;
+    transform: translateY(-1px);
+    color: white;
+}
+
+.btn-secondary-modern {
+    background: #95a5a6;
+    color: white;
+}
+
+.btn-secondary-modern:hover {
+    background: #7f8c8d;
+    transform: translateY(-1px);
+    color: white;
+}
+
+.btn-outline-modern {
+    background: transparent;
+    border: 2px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.btn-outline-modern:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(32, 102, 176, 0.05);
+}
+
+/* Список задач */
+.task-list-modern {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.task-item-modern {
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    transition: all 0.2s;
+    border-left: 4px solid transparent;
+    text-decoration: none;
+    color: var(--text-primary);
+    display: block;
+}
+
+.task-item-modern:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transform: translateX(4px);
+    color: var(--text-primary);
+}
+
+.task-item-modern.urgent {
+    border-left-color: var(--danger-color);
+}
+
+.task-item-modern.approval {
+    border-left-color: var(--info-color);
+}
+
+/* Мета-информация */
+.task-meta-modern {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.task-meta-modern i {
+    margin-right: 4px;
+    color: var(--text-secondary);
+}
+
+/* Счётчики */
+.counter-badge-modern {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+    margin-right: 8px;
+}
+
+.counter-primary {
+    background: var(--info-color);
+}
+
+.counter-danger {
+    background: var(--danger-color);
+}
+
+.counter-success {
+    background: var(--success-color);
+}
+
+.counter-secondary {
+    background: #95a5a6;
+}
+
+/* История действий */
+.history-item-modern {
+    padding: 12px 16px;
+    border-left: 3px solid var(--border-color);
+    margin-bottom: 12px;
+    background: var(--card-bg);
+    border-radius: 0 8px 8px 0;
+}
+
+.history-item-modern .history-action {
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.history-item-modern .history-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Модальные окна */
+.modal-modern {
+    background: rgba(0,0,0,0.5);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.modal-content-modern {
+    background: white;
+    border-radius: 12px;
+    padding: 30px;
+    max-width: 600px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .task-card-modern,
+    .event-card-modern {
+        padding: 16px;
+    }
+    
+    .form-modern {
+        padding: 20px;
+    }
+    
+    .filter-group-modern {
+        flex-direction: column;
+    }
+    
+    .filter-btn-modern {
+        width: 100%;
+    }
+}
+
+/* Анимации */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease;
+}
+
+/* Утилиты */
+.text-muted-modern {
+    color: var(--text-secondary);
+}
+
+.divider-modern {
+    height: 1px;
+    background: var(--border-color);
+    margin: 20px 0;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Улучшения для Tailwind совместимости */
+.flex {
+    display: flex;
+}
+
+.flex-wrap {
+    flex-wrap: wrap;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.justify-center {
+    justify-content: center;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.items-start {
+    align-items: flex-start;
+}
+
+.gap-2 {
+    gap: 8px;
+}
+
+.gap-4 {
+    gap: 16px;
+}
+
+.gap-6 {
+    gap: 24px;
+}
+
+.grid {
+    display: grid;
+}
+
+.grid-cols-1 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-xl {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+}
+
+.text-2xl {
+    font-size: 1.5rem;
+    line-height: 2rem;
+}
+
+.font-semibold {
+    font-weight: 600;
+}
+
+.mb-2 {
+    margin-bottom: 8px;
+}
+
+.mb-3 {
+    margin-bottom: 12px;
+}
+
+.mb-4 {
+    margin-bottom: 16px;
+}
+
+.mb-6 {
+    margin-bottom: 24px;
+}
+
+.mt-6 {
+    margin-top: 24px;
+}
+
+.p-4 {
+    padding: 16px;
+}
+
+.inline {
+    display: inline;
+}
+
+@media (min-width: 768px) {
+    .md\:grid-cols-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    
+    .md\:grid-cols-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    
+    .md\:inline-block {
+        display: inline-block;
+    }
+    
+    .md\:block {
+        display: block;
+    }
+}
+
+@media (min-width: 1024px) {
+    .lg\:grid-cols-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}

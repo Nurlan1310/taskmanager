@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+{% load static %}
+{% load widget_tweaks %}
+
+{% block title %}Создание карточки мероприятия{% endblock %}
+
+{% block page_title %}Новая карточка мероприятия{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+  <div class="form-modern" style="max-width: 800px; margin: 0 auto;">
+    <h4 class="text-xl font-semibold mb-6 text-center" style="color: var(--text-primary);">
+      <i class="fas fa-folder-plus"></i> Новая карточка мероприятия
+    </h4>
+
+    <form method="post" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+
+      {% if form.errors %}
+      <div class="alert-modern alert-danger-modern mb-6">
+        <i class="fas fa-exclamation-circle"></i>
+        <div>
+          <strong>Проверьте поля формы:</strong>
+          <ul style="margin-top: 8px; margin-bottom: 0;">
+            {% for field, errors in form.errors.items %}
+              <li><strong>{{ field|capfirst }}:</strong> {{ errors|join:", " }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Название -->
+      <div class="mb-4">
+        <label class="form-label-modern">
+          Название мероприятия <span style="color: var(--danger-color);">*</span>
+        </label>
+        {% render_field form.title class="form-control-modern" placeholder="Введите название..." %}
+      </div>
+
+      <!-- Категории -->
+      <div class="mb-4">
+        <label class="form-label-modern">Категории</label>
+        <div id="category-buttons" class="flex flex-wrap gap-2" style="margin-top: 8px;">
+          {% for cat in form.categories.field.queryset %}
+            <input type="checkbox" name="categories" value="{{ cat.id }}" id="cat-{{ cat.id }}" class="hidden">
+            <label class="category-badge-modern" for="cat-{{ cat.id }}" 
+                   style="cursor: pointer; opacity: 0.6; transition: opacity 0.2s;"
+                   data-category="{{ cat.slug }}">
+              {{ cat.name }}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Описание -->
+      <div class="mb-4">
+        <label class="form-label-modern">Описание</label>
+        {% render_field form.description class="form-control-modern" rows="3" placeholder="Краткое описание..." %}
+      </div>
+
+      <!-- План мероприятия -->
+      <div class="mb-4">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          {% render_field form.has_plan id="id_has_plan" style="width: 18px; height: 18px; cursor: pointer;" %}
+          <label for="id_has_plan" class="form-label-modern" style="margin: 0; cursor: pointer;">
+            С планом мероприятия
+          </label>
+        </div>
+      </div>
+
+      <div id="plan_section" style="display: none; padding: 20px; background: var(--content-bg); border-radius: 8px; margin-bottom: 20px;">
+        <div class="mb-4">
+          <label class="form-label-modern">
+            <i class="fas fa-file"></i> План мероприятия
+          </label>
+          {% render_field form.plan_file class="form-control-modern" %}
+        </div>
+
+        <!-- Согласующие -->
+        <div class="mb-4">
+          <label class="form-label-modern">Согласующие (поочередно)</label>
+          <div id="approvers-list" class="flex flex-wrap gap-2 mb-3" style="min-height: 40px; padding: 8px; background: white; border-radius: 8px;"></div>
+          <button type="button" class="btn-modern btn-outline-modern" id="add-approver-btn">
+            <i class="fas fa-plus"></i> Добавить
+          </button>
+          <div id="approvers-hidden-container"></div>
+        </div>
+
+        <!-- Утверждающий -->
+        <div class="mb-4">
+          <label class="form-label-modern">Утверждающий (окончательный)</label>
+          {% render_field form.final_approver class="form-control-modern" %}
+        </div>
+      </div>
+
+      <!-- Даты -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="form-label-modern">
+            Дата начала <span style="color: var(--danger-color);">*</span>
+          </label>
+          {% render_field form.start_date class="form-control-modern" type="date" %}
+        </div>
+
+        <div>
+          <label class="form-label-modern">Дата окончания</label>
+          {% render_field form.end_date class="form-control-modern" type="date" %}
+        </div>
+      </div>
+
+      <!-- Ответственный отдел -->
+      <div class="mb-4">
+        <label class="form-label-modern">Ответственный отдел</label>
+        {% render_field form.responsible_department class="form-control-modern" %}
+      </div>
+
+      <!-- Смежные отделы -->
+      <div class="mb-6">
+        <label class="form-label-modern">Смежные отделы (если есть)</label>
+        <div id="shared-depts-list" class="flex flex-wrap gap-2 mb-3" style="min-height: 40px; padding: 8px; background: var(--content-bg); border-radius: 8px;"></div>
+        <button type="button" class="btn-modern btn-outline-modern" id="add-dept-btn">
+          <i class="fas fa-plus"></i> Добавить
+        </button>
+        <div id="shared-depts-hidden-container"></div>
+      </div>
+
+      <!-- Кнопки -->
+      <div class="action-buttons">
+        <button type="submit" class="btn-modern btn-success-modern">
+          <i class="fas fa-paper-plane"></i> Отправить на согласование
+        </button>
+        <a href="{% url 'task_list' %}" class="btn-modern btn-outline-modern">Назад</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Модальное окно выбора -->
+<div id="searchModal" class="modal-modern" style="display: none;" onclick="if(event.target === this) closeModal()">
+  <div class="modal-content-modern" onclick="event.stopPropagation()">
+    <div class="flex justify-between items-center mb-4">
+      <h5 class="text-xl font-semibold">Выберите сотрудника / отдел</h5>
+      <button onclick="closeModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary);">&times;</button>
+    </div>
+    <input type="text" id="searchInput" class="form-control-modern mb-4" placeholder="Поиск...">
+    <div style="max-height: 400px; overflow-y: auto;">
+      <ul id="searchResults" class="task-list-modern" style="gap: 8px;"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const hasPlan = document.getElementById("id_has_plan");
+  const planSection = document.getElementById("plan_section");
+  const approversList = document.getElementById("approvers-list");
+  const approversHiddenContainer = document.getElementById("approvers-hidden-container");
+  const sharedDeptsList = document.getElementById("shared-depts-list");
+  const sharedDeptsHiddenContainer = document.getElementById("shared-depts-hidden-container");
+
+  const employees = {{ employees_json|safe }};
+  const departments = {{ departments_json|safe }};
+
+  let currentTarget = null;
+
+  function togglePlan() {
+    planSection.style.display = hasPlan.checked ? "block" : "none";
+  }
+  if (hasPlan) {
+    hasPlan.addEventListener("change", togglePlan);
+    togglePlan();
+  }
+
+  // Обработка категорий
+  document.querySelectorAll('#category-buttons input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', function() {
+      const label = document.querySelector(`label[for="${this.id}"]`);
+      if (this.checked) {
+        label.style.opacity = '1';
+        label.style.boxShadow = '0 0 0 3px rgba(32, 102, 176, 0.3)';
+      } else {
+        label.style.opacity = '0.6';
+        label.style.boxShadow = 'none';
+      }
+    });
+  });
+
+  // Открытие модалки
+  document.getElementById("add-approver-btn").addEventListener("click", () => openSearchModal("approver"));
+  document.getElementById("add-dept-btn").addEventListener("click", () => openSearchModal("dept"));
+
+  function closeModal() {
+    document.getElementById("searchModal").style.display = "none";
+  }
+
+  function openSearchModal(type) {
+    currentTarget = type;
+    const modalEl = document.getElementById("searchModal");
+    document.getElementById("searchInput").value = "";
+    renderSearchResults(type === "approver" ? employees : departments);
+    modalEl.style.display = "flex";
+  }
+
+  function renderSearchResults(list) {
+    const ul = document.getElementById("searchResults");
+    if (list.length === 0) {
+      ul.innerHTML = '<li style="padding: 20px; text-align: center; color: var(--text-secondary);">Ничего не найдено</li>';
+      return;
+    }
+    ul.innerHTML = list.map(x => `
+      <li class="task-item-modern" data-id="${x.id}" data-name="${x.name}" style="cursor: pointer;">
+        <div style="font-weight: 500;">${x.name}</div>
+      </li>
+    `).join("");
+  }
+
+  document.getElementById("searchInput").addEventListener("input", e => {
+    const q = e.target.value.trim().toLowerCase();
+    const source = currentTarget === "approver" ? employees : departments;
+    const filtered = source.filter(x => x.name.toLowerCase().includes(q));
+    renderSearchResults(filtered);
+  });
+
+  document.getElementById("searchResults").addEventListener("click", e => {
+    const li = e.target.closest("li[data-id]");
+    if (!li) return;
+    const id = li.dataset.id;
+    const name = li.dataset.name;
+    addSelectedItem(currentTarget, id, name);
+    closeModal();
+  });
+
+  function addSelectedItem(type, id, name) {
+    const list = type === "approver" ? approversList : sharedDeptsList;
+    const container = type === "approver" ? approversHiddenContainer : sharedDeptsHiddenContainer;
+    const inputName = type === "approver" ? "approvers" : "shared_departments";
+
+    if ([...list.querySelectorAll("[data-id]")].some(el => el.dataset.id === id)) return;
+
+    const badge = document.createElement("div");
+    badge.className = "counter-badge-modern counter-primary";
+    badge.dataset.id = id;
+    badge.style.cursor = "pointer";
+    badge.innerHTML = `<span>${name}</span> <i class="fas fa-times" style="margin-left: 8px;"></i>`;
+    list.appendChild(badge);
+
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = inputName;
+    hidden.value = id;
+    hidden.dataset.for = id;
+    container.appendChild(hidden);
+
+    badge.addEventListener("click", () => {
+      const hid = container.querySelector(`input[data-for="${id}"]`);
+      if (hid) hid.remove();
+      badge.remove();
+    });
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% if tasks %}
+<div class="task-list-modern">
+  {% for task in tasks %}
+  <a href="{% url 'task_detail' task.id %}" 
+     class="task-item-modern 
+     {% if task.status == 'done' %}done
+     {% elif task.task_type == 'approval' %}approval
+     {% elif task.priority == 'urgent' or task.due_date and task.due_date|date:'Y-m-d' <= 'now'|date:'Y-m-d'|add_days:3 %}urgent
+     {% elif task.status == 'in_progress' %}in-progress
+     {% endif %}">
+    <div class="flex justify-between items-start">
+      <div style="flex: 1;">
+        <div style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">
+          {{ task.title }}
+        </div>
+        <div class="task-meta-modern">
+          {% if task.due_date %}
+          <span><i class="fas fa-calendar-times"></i> Дедлайн: {{ task.due_date|date:"d.m.Y" }}</span>
+          {% endif %}
+          <span>
+            <i class="fas fa-info-circle"></i> Статус:
+            {% if task.status == "done" %}
+              Выполнена
+            {% elif task.task_type == "approval" %}
+              На согласовании
+            {% else %}
+              {{ task.get_status_display }}
+            {% endif %}
+          </span>
+        </div>
+        {% if task.assigned_employee %}
+        <div class="task-meta-modern">
+          <span>
+            <i class="fas fa-user"></i> Исполнитель: {{ task.assigned_employee.user.get_full_name|default:task.assigned_employee.user.username }}
+          </span>
+        </div>
+        {% endif %}
+      </div>
+      <span class="status-badge-modern
+        {% if task.status == 'done' %}status-done-modern
+        {% elif task.task_type == 'approval' %}status-under_review-modern
+        {% elif task.priority == 'urgent' %}status-in_progress-modern
+        {% elif task.status == 'in_progress' %}status-in_progress-modern
+        {% else %}status-new-modern{% endif %}">
+        {% if task.status == "done" %}
+          <i class="fas fa-check"></i> Выполнена
+        {% elif task.task_type == "approval" %}
+          <i class="fas fa-hourglass-half"></i> На согласовании
+        {% else %}
+          {{ task.get_status_display }}
+        {% endif %}
+      </span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="modern-card text-center" style="padding: 40px;">
+  <i class="fas fa-inbox" style="font-size: 48px; color: var(--text-secondary); margin-bottom: 16px;"></i>
+  <p style="color: var(--text-secondary);">Пока нет задач для этого фильтра.</p>
+</div>
+{% endif %}

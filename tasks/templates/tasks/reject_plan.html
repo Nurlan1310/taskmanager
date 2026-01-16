@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h4>Возврат плана на доработку</h4>
+  <p>План: <strong>{{ card.title }}</strong></p>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="mb-3">
+      <label class="form-label fw-bold">Комментарий</label>
+      <textarea name="comment" rows="4" class="form-control" placeholder="Укажите причину возврата..."></textarea>
+    </div>
+    <button type="submit" class="btn btn-danger">🔙 Вернуть на доработку</button>
+    <a href="{% url 'task_detail' task.id %}" class="btn btn-secondary">Отмена</a>
+  </form>
+</div>
+{% endblock %}

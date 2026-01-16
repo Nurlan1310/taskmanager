@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Согласование выполнения задачи{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="card shadow-lg border-0">
+    <div class="card-body p-4">
+      <h4 class="fw-bold mb-3 text-center">🧾 Проверка выполнения задачи</h4>
+
+      {% if base_task %}
+        <h5 class="mb-2">{{ base_task.title }}</h5>
+        <p class="text-muted">{{ base_task.description }}</p>
+        <hr>
+
+        <p><strong>Исполнитель:</strong>
+          {{ base_task.assigned_employee.user.last_name }} {{ base_task.assigned_employee.user.first_name }}
+          {% if base_task.assigned_employee.position %}
+            ({{ base_task.assigned_employee.position }})
+          {% endif %}
+        </p>
+
+        <p><strong>Комментарий исполнителя:</strong></p>
+        {% if last_exec_comment %}
+          <div class="alert alert-secondary">{{ last_exec_comment }}</div>
+        {% else %}
+          <div class="alert alert-light text-muted">Нет комментария исполнителя</div>
+        {% endif %}
+
+        <hr>
+        <h6 class="fw-bold">📎 Вложения</h6>
+        {% if attachments %}
+          <ul class="list-group mb-3">
+            {% for att in attachments %}
+              {% if att.file %}
+                <li class="list-group-item">
+                  <a href="{{ att.file.url }}" target="_blank">📄 {{ att.file.name|cut:"tasks/execution_files/" }}</a>
+                  <span class="text-muted float-end">{{ att.uploaded_at|date:"d.m.Y H:i" }}</span>
+                </li>
+              {% elif att.link %}
+                <li class="list-group-item">
+                  🔗 <a href="{{ att.link }}" target="_blank">{{ att.link }}</a>
+                  <span class="text-muted float-end">{{ att.uploaded_at|date:"d.m.Y H:i" }}</span>
+                </li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-muted">Нет приложенных файлов или ссылок.</p>
+        {% endif %}
+
+        <hr>
+
+        {% if review_task.status == "new" %}
+          <div class="text-center">
+            <a href="{% url 'task_review_take' review_task.id %}" class="btn btn-warning px-4">
+              🟡 Взять в работу
+            </a>
+            <a href="{% url 'task_list' %}" class="btn btn-outline-secondary ms-2">Назад</a>
+          </div>
+
+        {% elif review_task.status == "in_progress" %}
+          <form method="post">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Комментарий при проверке</label>
+              <textarea name="comment" rows="3" class="form-control" placeholder="Комментарий (виден исполнителю)..."></textarea>
+            </div>
+
+            <div class="text-center">
+              <button type="submit" formaction="{% url 'task_review_approve' review_task.id %}" class="btn btn-success px-4">
+                ✅ Утвердить
+              </button>
+              <button type="submit" formaction="{% url 'task_review_reject' review_task.id %}" class="btn btn-danger px-4 ms-2">
+                ❌ Вернуть на доработку
+              </button>
+              <a href="{% url 'task_list' %}" class="btn btn-outline-secondary ms-2">Назад</a>
+            </div>
+          </form>
+
+        {% else %}
+          <div class="alert alert-info text-center">
+            Проверка завершена. Дальнейшие действия недоступны.
+          </div>
+          <div class="text-center">
+            <a href="{% url 'task_list' %}" class="btn btn-outline-secondary">Назад</a>
+          </div>
+        {% endif %}
+
+      {% else %}
+        <div class="alert alert-danger">
+          ⚠ Исходная задача не найдена. Возможно, она была удалена.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

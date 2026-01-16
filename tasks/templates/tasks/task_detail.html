@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %}Задача: {{ task.title }}{% endblock %}
+
+{% block page_title %}Задача: {{ task.title }}{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+  <div class="modern-card">
+    <div class="flex justify-between items-start mb-4">
+      <h3 class="text-2xl font-semibold" style="color: var(--text-primary);">{{ task.title }}</h3>
+      <a href="{% url 'task_list' %}" class="btn-modern btn-outline-modern">
+        <i class="fas fa-arrow-left"></i> Назад
+      </a>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <!-- Мероприятие -->
+      <div class="p-4" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 4px;">
+          <i class="fas fa-calendar-check"></i> Мероприятие
+        </div>
+        <div style="font-size: 15px; color: var(--text-primary);">
+          {% if task.card %}
+            <a href="{% url 'card_detail' task.card.id %}" style="color: var(--primary-color); text-decoration: none;">
+              {{ task.card.title }}
+            </a>
+          {% else %}
+            <span style="color: var(--text-secondary);">— не привязано —</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Инициатор -->
+      <div class="p-4" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 4px;">
+          <i class="fas fa-user-plus"></i> Инициатор
+        </div>
+        <div style="font-size: 15px; color: var(--text-primary);">
+          {% if task.created_by %}
+            {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}
+            {% if task.created_by.position %}
+              <span style="color: var(--text-secondary);">({{ task.created_by.position }})</span>
+            {% endif %}
+          {% else %}
+            <span style="color: var(--text-secondary);">— не указан —</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Назначено -->
+      <div class="p-4" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 4px;">
+          <i class="fas fa-user-tag"></i> Назначено
+        </div>
+        <div style="font-size: 15px; color: var(--text-primary);">
+          {% if task.assigned_employee %}
+            {{ task.assigned_employee.user.last_name }} {{ task.assigned_employee.user.first_name }}
+            {% if task.assigned_employee.position %}
+              <span style="color: var(--text-secondary);">({{ task.assigned_employee.position }})</span>
+            {% endif %}
+          {% elif task.assigned_department %}
+            {{ task.assigned_department.name }}
+          {% elif task.recipients.all %}
+            {% for r in task.recipients.all %}
+              {{ r.user.last_name }} {{ r.user.first_name }}
+              {% if r.position %} <span style="color: var(--text-secondary);">({{ r.position }})</span>{% endif %}
+              {% if not forloop.last %}, {% endif %}
+            {% endfor %}
+          {% else %}
+            <span style="color: var(--text-secondary);">— не указано —</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Статус -->
+      <div class="p-4" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 4px;">
+          <i class="fas fa-info-circle"></i> Статус
+        </div>
+        <div>
+          <span class="status-badge-modern
+            {% if task.status == 'done' %}status-done-modern
+            {% elif task.status == 'in_progress' %}status-in_progress-modern
+            {% elif task.status == 'under_review' %}status-under_review-modern
+            {% elif task.status == 'sent_for_review' %}status-sent_for_review-modern
+            {% elif task.status == 'rejected' %}status-rejected-modern
+            {% else %}status-new-modern{% endif %}">
+            {% if task.status == "done" %}
+              <i class="fas fa-check"></i> Выполнено
+            {% elif task.status == "in_progress" %}
+              <i class="fas fa-spinner"></i> В работе
+            {% elif task.status == "under_review" %}
+              <i class="fas fa-eye"></i> На рассмотрении
+            {% elif task.status == "sent_for_review" %}
+              <i class="fas fa-paper-plane"></i> Отправлена на согласование
+            {% elif task.status == "new" %}
+              <i class="fas fa-circle"></i> Новое
+            {% elif task.status == "rejected" %}
+              <i class="fas fa-times"></i> Отклонена
+            {% else %}
+              {{ task.get_status_display }}
+            {% endif %}
+          </span>
+        </div>
+      </div>
+
+      <!-- Дата создания -->
+      <div class="p-4" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 4px;">
+          <i class="fas fa-calendar"></i> Дата создания
+        </div>
+        <div style="font-size: 15px; color: var(--text-primary);">
+          {{ task.created_at|date:"d.m.Y H:i" }}
+        </div>
+      </div>
+
+      <!-- Срок исполнения -->
+      <div class="p-4" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 4px;">
+          <i class="fas fa-calendar-times"></i> Срок исполнения
+        </div>
+        <div style="font-size: 15px; color: var(--text-primary);">
+          {% if task.due_date %}
+            {{ task.due_date|date:"d.m.Y" }}
+          {% else %}
+            <span style="color: var(--text-secondary);">— не указан —</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="divider-modern"></div>
+
+    <!-- Описание задачи -->
+    <div class="mb-6">
+      <h5 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">
+        <i class="fas fa-align-left"></i> Описание задачи
+      </h5>
+      <div style="color: var(--text-primary); line-height: 1.6; white-space: pre-wrap;">{{ task.description|linebreaks }}</div>
+    </div>
+
+    {% if task.google_drive_link %}
+      <div class="mb-4 p-4" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 8px;">
+          <i class="fab fa-google-drive"></i> Google Диск
+        </div>
+        <a href="{{ task.google_drive_link }}" target="_blank" style="color: var(--primary-color); text-decoration: none; word-break: break-all;">
+          {{ task.google_drive_link }}
+        </a>
+      </div>
+    {% endif %}
+
+    {% if task.attachment %}
+      <div class="mb-4 p-4" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 8px;">
+          <i class="fas fa-paperclip"></i> Вложение
+        </div>
+        <a href="{{ task.attachment.url }}" download style="color: var(--primary-color); text-decoration: none;">
+          <i class="fas fa-file"></i> {{ task.attachment.name }}
+        </a>
+      </div>
+    {% endif %}
+
+    {% if task.review_comment %}
+      <div class="mb-4 p-4" style="background: #d1ecf1; border-left: 4px solid var(--info-color); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">
+          <i class="fas fa-comment"></i> Комментарий проверяющего
+        </div>
+        <div style="color: var(--text-primary);">{{ task.review_comment }}</div>
+      </div>
+    {% endif %}
+
+    <div class="divider-modern"></div>
+
+    <!-- Действия -->
+    <div class="action-buttons">
+      {% if user.employee == task.assigned_employee and task.status == "new" or task.status == "rejected" or task.status == "sent_for_review" %}
+        <form action="{% url 'take_task' task.id %}" method="post" class="inline">
+          {% csrf_token %}
+          <button type="submit" class="btn-modern btn-warning-modern" style="background: var(--warning-color);">
+            <i class="fas fa-hand-paper"></i> Взять в работу
+          </button>
+        </form>
+      {% endif %}
+
+      {% if user.employee == task.assigned_employee and task.status == "in_progress" and task.task_type == "regular" %}
+        <a href="{% url 'task_execute' task.id %}" class="btn-modern btn-success-modern">
+          <i class="fas fa-check"></i> Исполнить
+        </a>
+      {% endif %}
+
+      {% if user.employee == task.assigned_employee and task.task_type == "review" and task.status == "in_progress" %}
+        <a href="{% url 'task_review' task.id %}" class="btn-modern btn-primary-modern">
+          <i class="fas fa-search"></i> Проверить выполнение
+        </a>
+      {% endif %}
+
+      {% if task.status == "new" and task.task_type == "regular" and task.assigned_employee == request.user.employee %}
+        <button class="btn-modern btn-outline-modern" onclick="document.getElementById('delegateModal').style.display='flex'">
+          <i class="fas fa-share"></i> Направить
+        </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- История действий -->
+  <div class="modern-card mt-6">
+    <h5 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">
+      <i class="fas fa-history"></i> История действий
+    </h5>
+    {% if task.history.all %}
+      <div>
+        {% for h in task.history.all %}
+          <div class="history-item-modern">
+            <div class="history-action">
+              <i class="fas fa-circle" style="font-size: 6px; color: var(--primary-color); margin-right: 8px;"></i>
+              {{ h.get_action_display }}
+              {% if h.employee %}
+                — {{ h.employee.user.first_name }} {{ h.employee.user.last_name }}
+                {% if h.employee.position %} ({{ h.employee.position }}){% endif %}
+              {% endif %}
+            </div>
+            <div class="history-meta">
+              <i class="fas fa-clock"></i> {{ h.timestamp|date:"d.m.Y H:i" }}
+              {% if h.comment %}
+                <br><span style="margin-top: 4px; display: block;">{{ h.comment }}</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p style="color: var(--text-secondary); text-align: center; padding: 20px;">История пока пуста</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modal для делегирования -->
+<div id="delegateModal" class="modal-modern" style="display: none;" onclick="if(event.target === this) this.style.display='none'">
+  <div class="modal-content-modern" onclick="event.stopPropagation()">
+    <div class="flex justify-between items-center mb-4">
+      <h5 class="text-xl font-semibold">Направить задачу</h5>
+      <button onclick="document.getElementById('delegateModal').style.display='none'" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary);">&times;</button>
+    </div>
+    <form action="{% url 'delegate_task' task.id %}" method="post">
+      {% csrf_token %}
+      <div class="mb-4">
+        <label class="form-label-modern">Выберите сотрудника</label>
+        <select name="delegate_to" class="form-control-modern" required>
+          {% for emp in available_employees %}
+            <option value="{{ emp.id }}">
+              {{ emp.user.last_name }} {{ emp.user.first_name }} ({{ emp.position }}, {{ emp.department.name }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="action-buttons">
+        <button type="submit" class="btn-modern btn-primary-modern">Отправить</button>
+        <button type="button" class="btn-modern btn-outline-modern" onclick="document.getElementById('delegateModal').style.display='none'">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Задачи и мероприятия{% endblock %}
+
+{% block page_title %}Задачи и мероприятия{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+  <!-- Информационный фильтр по сотруднику -->
+  {% if filter_emp %}
+  <div class="alert-modern alert-info-modern mb-4">
+    <i class="fas fa-filter"></i>
+    <div>
+      <strong>Показаны только задачи сотрудника:</strong> {{ filter_emp.user.get_full_name|default:filter_emp.user.username }}
+      {% if filter_emp.position %}({{ filter_emp.position }}){% endif %}
+      <a href="{% url 'task_list' %}" class="btn-modern btn-outline-modern" style="margin-left: 12px; padding: 6px 12px; font-size: 12px;">
+        Сбросить фильтр
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Категории -->
+  {% if categories %}
+  <div class="mb-6">
+    <div class="flex flex-wrap gap-2">
+      <a href="{% url 'task_list' %}"
+         class="category-tab-modern {% if not active_category %}active{% endif %}"
+         style="background: #95a5a6;">
+        <i class="fas fa-list"></i>
+        <span>Все</span>
+        <span class="count-badge">{{ cards|length }}</span>
+      </a>
+      {% for cat in categories %}
+        <a href="?category={{ cat.slug }}"
+           class="category-tab-modern {% if active_category and cat.slug == active_category.slug %}active{% endif %}"
+           style="background: {% if cat.slug == 'kursy' %}#27ae60{% elif cat.slug == 'konkursy' %}#3498db{% elif cat.slug == 'goszakaz' %}#e74c3c{% elif cat.slug == 'sovmestnye' %}#e67e22{% elif cat.slug == 'platnye' %}#f1c40f{% else %}#95a5a6{% endif %};">
+          <span>{{ cat.name }}</span>
+          <span class="count-badge">{{ cat.cards.count }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Задачи на согласование -->
+  {% if approval_tasks %}
+  <div class="mb-6">
+    <h3 class="text-xl font-semibold mb-4" style="color: var(--info-color);">
+      <i class="fas fa-check-circle"></i> Задачи на согласование
+    </h3>
+    <div class="task-list-modern">
+      {% for task in approval_tasks %}
+      <a href="{% url 'task_detail' task.id %}" class="task-item-modern approval">
+        <div class="flex justify-between items-start">
+          <div style="flex: 1;">
+            <div style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">
+              {{ task.title }}
+            </div>
+            <div class="task-meta-modern">
+              <span><i class="fas fa-calendar"></i> Карточка: {{ task.card.title }}</span>
+              <span><i class="fas fa-clock"></i> Создано: {{ task.created_at|date:"d.m.Y" }}</span>
+            </div>
+            <div class="task-meta-modern">
+              <span><i class="fas fa-user"></i> {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}</span>
+              {% if task.created_by.position %}<span>{{ task.created_by.position }}</span>{% endif %}
+            </div>
+          </div>
+          <span class="status-badge-modern status-under_review-modern">
+            <i class="fas fa-hourglass-half"></i> На согласовании
+          </span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Срочные задачи -->
+  {% if urgent_tasks %}
+  <div class="mb-6">
+    <h3 class="text-xl font-semibold mb-4" style="color: var(--danger-color);">
+      <i class="fas fa-exclamation-triangle"></i> Срочные задачи (до 3 дней)
+    </h3>
+    <div class="task-list-modern">
+      {% for task in urgent_tasks %}
+      <a href="{% url 'task_detail' task.id %}" class="task-item-modern urgent">
+        <div class="flex justify-between items-start">
+          <div style="flex: 1;">
+            <div style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">
+              {{ task.title }}
+            </div>
+            <div class="task-meta-modern">
+              <span><i class="fas fa-calendar-alt"></i> Мероприятие: {{ task.card.title }}</span>
+              <span><i class="fas fa-calendar-times"></i> Дедлайн: {{ task.due_date|date:"d.m.Y" }}</span>
+            </div>
+            <div class="task-meta-modern">
+              <span><i class="fas fa-user"></i> {{ task.created_by.user.last_name }} {{ task.created_by.user.first_name }}</span>
+              {% if task.created_by.position %}<span>{{ task.created_by.position }}</span>{% endif %}
+            </div>
+          </div>
+          <span class="status-badge-modern status-in_progress-modern">
+            <i class="fas fa-clock"></i> Срок!
+          </span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Карточки мероприятий -->
+  <div class="flex justify-between items-center mb-4">
+    <h3 class="text-2xl font-semibold" style="color: var(--text-primary);">
+      <i class="fas fa-calendar-check"></i> Мероприятия и задачи
+    </h3>
+    <a href="{% url 'card_create' %}" class="btn-modern btn-success-modern">
+      <i class="fas fa-plus"></i> Новая карточка
+    </a>
+  </div>
+
+  {% if cards %}
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for card in cards %}
+    <div class="event-card-modern">
+      <h5 class="event-card-title">
+        <a href="{% url 'card_detail' card.id %}">
+          {{ card.title }}
+        </a>
+      </h5>
+
+      {% if card.categories.exists %}
+        <div class="mb-3">
+          {% for c in card.categories.all %}
+            <span class="category-badge-modern" data-category="{{ c.slug }}">{{ c.name }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="task-meta-modern mb-3">
+        <span><i class="fas fa-calendar"></i> {{ card.start_date|date:"d.m.Y" }} — {{ card.end_date|date:"d.m.Y" }}</span>
+      </div>
+      
+      <div class="task-meta-modern mb-4">
+        <span><i class="fas fa-user"></i> {{ card.created_by.get_full_name|default:card.created_by.user.username }}</span>
+      </div>
+
+      <!-- Прогресс -->
+      <div class="mb-4">
+        <div class="flex justify-between items-center mb-2">
+          <span style="font-size: 13px; color: var(--text-secondary);">Выполнено:</span>
+          <span style="font-weight: 600; color: var(--text-primary);">{{ card.progress }}%</span>
+        </div>
+        <div class="progress-modern">
+          <div class="progress-bar-modern" style="width: {{ card.progress }}%;"></div>
+        </div>
+      </div>
+
+      <!-- Счётчики задач -->
+      <div class="mb-4">
+        {% if card.approval_count %}
+          <span class="counter-badge-modern counter-primary">
+            <i class="fas fa-check-circle"></i> {{ card.approval_count }}
+          </span>
+        {% endif %}
+        {% if card.urgent_count %}
+          <span class="counter-badge-modern counter-danger">
+            <i class="fas fa-exclamation-circle"></i> {{ card.urgent_count }}
+          </span>
+        {% endif %}
+        {% if card.other_count %}
+          <span class="counter-badge-modern counter-secondary">
+            <i class="fas fa-circle"></i> {{ card.other_count }}
+          </span>
+        {% endif %}
+        {% if card.done_count %}
+          <span class="counter-badge-modern counter-success">
+            <i class="fas fa-check"></i> {{ card.done_count }}
+          </span>
+        {% endif %}
+      </div>
+
+      <!-- Кнопка -->
+      <div style="margin-top: auto; padding-top: 16px;">
+        <a href="{% url 'card_detail' card.id %}" class="btn-modern btn-outline-modern" style="width: 100%; justify-content: center;">
+          <i class="fas fa-arrow-right"></i> Открыть карточку
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="modern-card text-center" style="padding: 40px;">
+    <i class="fas fa-inbox" style="font-size: 48px; color: var(--text-secondary); margin-bottom: 16px;"></i>
+    <p style="color: var(--text-secondary); font-size: 16px;">Пока нет созданных карточек мероприятий.</p>
+    <a href="{% url 'card_create' %}" class="btn-modern btn-primary-modern" style="margin-top: 20px;">
+      <i class="fas fa-plus"></i> Создать первую карточку
+    </a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

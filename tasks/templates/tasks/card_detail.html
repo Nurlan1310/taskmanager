@@ -1,0 +1,241 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load widget_tweaks %}
+
+{% block title %}{{ card.title }}{% endblock %}
+
+{% block page_title %}{{ card.title }}{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+  <!-- Заголовок -->
+  <div class="flex justify-between items-start mb-6">
+    <div>
+      <h3 class="text-2xl font-semibold mb-3" style="color: var(--text-primary);">{{ card.title }}</h3>
+      {% if card.categories.exists %}
+      <div class="flex flex-wrap gap-2">
+        {% for cat in card.categories.all %}
+          <span class="category-badge-modern" data-category="{{ cat.slug }}">{{ cat.name }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <a href="{% url 'task_list' %}" class="btn-modern btn-outline-modern">
+      <i class="fas fa-arrow-left"></i> Назад
+    </a>
+  </div>
+
+  <!-- Информация о карточке -->
+  <div class="modern-card mb-6">
+    {% if card.description %}
+    <p class="mb-4" style="color: var(--text-primary); line-height: 1.6;">{{ card.description }}</p>
+    {% endif %}
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      <div class="p-3" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">
+          <i class="fas fa-calendar"></i> Период
+        </div>
+        <div style="font-size: 14px; color: var(--text-primary);">
+          {{ card.start_date|date:"d.m.Y" }} — {{ card.end_date|date:"d.m.Y" }}
+        </div>
+      </div>
+      
+      <div class="p-3" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">
+          <i class="fas fa-building"></i> Ответственный отдел
+        </div>
+        <div style="font-size: 14px; color: var(--text-primary);">
+          {{ card.responsible_department.name }}
+        </div>
+      </div>
+      
+      <div class="p-3" style="background: var(--content-bg); border-radius: 8px;">
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 12px; margin-bottom: 4px;">
+          <i class="fas fa-user"></i> Создано
+        </div>
+        <div style="font-size: 14px; color: var(--text-primary);">
+          {{ card.created_by.user.get_full_name|default:card.created_by.user.username }}
+        </div>
+      </div>
+    </div>
+
+    {% if card.plan_file %}
+    <div class="mb-4 p-4" style="background: var(--content-bg); border-radius: 8px;">
+      <div class="flex items-center gap-3 mb-2">
+        <strong style="color: var(--text-primary);">Статус плана:</strong>
+        <span class="status-badge-modern
+          {% if card.plan_status == 'approved' %}status-done-modern
+          {% elif card.plan_status == 'rejected' %}status-rejected-modern
+          {% elif card.plan_status == 'pending' %}status-under_review-modern
+          {% else %}status-new-modern{% endif %}">
+          {{ card.get_plan_status_display }}
+        </span>
+        <button class="btn-modern btn-outline-modern" style="padding: 6px 12px; font-size: 12px;" onclick="document.getElementById('approvalProgressModal').style.display='flex'">
+          <i class="fas fa-list-alt"></i> Ход согласования
+        </button>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if card.shared_departments.exists %}
+    <div class="mb-4 p-3" style="background: var(--content-bg); border-radius: 8px;">
+      <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 8px;">
+        <i class="fas fa-share-alt"></i> Расшарено с отделами:
+      </div>
+      <div style="color: var(--text-primary);">
+        {% for d in card.shared_departments.all %}
+          {{ d.name }}{% if not forloop.last %}, {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Прогресс -->
+    <div class="mb-4">
+      <div class="flex justify-between items-center mb-2">
+        <span style="font-weight: 600; color: var(--text-primary);">Прогресс выполнения:</span>
+        <span style="font-weight: 600; color: var(--text-primary);">{{ progress }}%</span>
+      </div>
+      <div class="progress-modern">
+        <div class="progress-bar-modern" style="width: {{ progress }}%;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Кнопка добавления задачи -->
+  <div class="flex justify-end mb-6">
+    {% if not card.has_plan or card.plan_status == "approved" %}
+      <a href="{% url 'task_create_for_card' card.id %}" class="btn-modern btn-success-modern">
+        <i class="fas fa-plus"></i> Добавить задачу в карточку
+      </a>
+    {% else %}
+      <button class="btn-modern btn-secondary-modern" disabled style="cursor: not-allowed; opacity: 0.6;">
+        <i class="fas fa-ban"></i> Добавление задач недоступно, план мероприятия не утвержден!
+      </button>
+    {% endif %}
+  </div>
+
+  <!-- Фильтры задач -->
+  <div class="filter-group-modern mb-6">
+    <button data-filter="all" class="filter-btn-modern {% if filter_type == 'all' %}active{% endif %}" onclick="filterTasks('all')">
+      <i class="fas fa-list"></i> Все
+    </button>
+    <button data-filter="approval" class="filter-btn-modern" onclick="filterTasks('approval')">
+      <i class="fas fa-check-circle"></i> Согласования
+    </button>
+    <button data-filter="urgent" class="filter-btn-modern" onclick="filterTasks('urgent')">
+      <i class="fas fa-exclamation-triangle"></i> Срочные
+    </button>
+    <button data-filter="new" class="filter-btn-modern" onclick="filterTasks('new')">
+      <i class="fas fa-circle"></i> Новые
+    </button>
+    <button data-filter="in_progress" class="filter-btn-modern" onclick="filterTasks('in_progress')">
+      <i class="fas fa-spinner"></i> В работе
+    </button>
+    <button data-filter="done" class="filter-btn-modern" onclick="filterTasks('done')">
+      <i class="fas fa-check"></i> Выполненные
+    </button>
+  </div>
+
+  <!-- Контейнер для списка -->
+  <div id="task-list">
+    {% include 'tasks/_task_list.html' %}
+  </div>
+</div>
+
+<!-- Модальное окно: ход согласования -->
+<div id="approvalProgressModal" class="modal-modern" style="display: none;" onclick="if(event.target === this) this.style.display='none'">
+  <div class="modal-content-modern" onclick="event.stopPropagation()">
+    <div class="flex justify-between items-center mb-4">
+      <h5 class="text-xl font-semibold">Ход согласования плана</h5>
+      <button onclick="document.getElementById('approvalProgressModal').style.display='none'" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary);">&times;</button>
+    </div>
+
+    {% with total=card.cardapproverorder_set.count %}
+    <div class="mb-4">
+      <p style="color: var(--text-secondary); margin-bottom: 12px;">
+        Согласовано: <strong style="color: var(--text-primary);">{{ card.current_approver_index|default:0 }}</strong> из <strong style="color: var(--text-primary);">{{ total }}</strong>
+        {% if card.final_approver %}
+          (+ финальное утверждение)
+        {% endif %}
+      </p>
+
+      <!-- Прогресс-бар -->
+      <div class="progress-modern mb-4">
+        <div class="progress-bar-modern" style="width: {% widthratio card.current_approver_index total 100 %}%;"></div>
+      </div>
+
+      <!-- Список согласующих -->
+      <div class="task-list-modern">
+        {% for rel in card.cardapproverorder_set.all %}
+          <div class="task-item-modern" style="cursor: default;">
+            <div class="flex justify-between items-center">
+              <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">
+                  {{ rel.employee.user.get_full_name|default:rel.employee.user.username }}
+                </div>
+                <div style="font-size: 13px; color: var(--text-secondary);">
+                  {{ rel.employee.position }}
+                </div>
+              </div>
+              {% if forloop.counter0 < card.current_approver_index %}
+                <span class="status-badge-modern status-done-modern">
+                  <i class="fas fa-check"></i> Согласовано
+                </span>
+              {% elif forloop.counter0 == card.current_approver_index and card.plan_status == "pending" %}
+                <span class="status-badge-modern status-under_review-modern">
+                  <i class="fas fa-hourglass-half"></i> Текущий
+                </span>
+              {% else %}
+                <span class="status-badge-modern status-new-modern">
+                  Ожидает
+                </span>
+              {% endif %}
+            </div>
+          </div>
+        {% empty %}
+          <div class="modern-card text-center" style="padding: 20px;">
+            <p style="color: var(--text-secondary);">Согласующие не назначены</p>
+          </div>
+        {% endfor %}
+      </div>
+
+      <!-- Финальный утверждающий -->
+      {% if card.final_approver %}
+        <div class="divider-modern"></div>
+        <div class="p-4" style="background: var(--content-bg); border-radius: 8px;">
+          <div style="font-weight: 600; color: var(--text-secondary); font-size: 13px; margin-bottom: 8px;">
+            Финальный утверждающий:
+          </div>
+          <div style="color: var(--text-primary);">
+            {{ card.final_approver.user.get_full_name|default:card.final_approver.user.username }}
+            {% if card.is_fully_approved %}
+              <span class="status-badge-modern status-done-modern" style="margin-left: 12px;">
+                <i class="fas fa-check"></i> Утверждён
+              </span>
+            {% elif card.current_approver_index == total %}
+              <span class="status-badge-modern status-under_review-modern" style="margin-left: 12px;">
+                <i class="fas fa-hourglass-half"></i> Ожидает утверждения
+              </span>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+    {% endwith %}
+  </div>
+</div>
+
+<script>
+async function filterTasks(type) {
+  const filters = document.querySelectorAll('.filter-btn-modern');
+  filters.forEach(btn => btn.classList.remove('active'));
+  event.target.classList.add('active');
+  
+  const resp = await fetch(`?filter=${type}&ajax=1`);
+  const html = await resp.text();
+  document.getElementById('task-list').innerHTML = html;
+  history.replaceState(null, "", `?filter=${type}`);
+}
+</script>
+{% endblock %}

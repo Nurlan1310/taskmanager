@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% load widget_tweaks %}
+{% load static %}
+
+{% block title %}Создать задачу{% endblock %}
+
+{% block page_title %}Создание новой задачи{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+  <div class="form-modern">
+    <h4 class="text-xl font-semibold mb-6 text-center" style="color: var(--text-primary);">
+      <i class="fas fa-plus-circle"></i> Создание новой задачи
+    </h4>
+
+    {% if card %}
+    <div class="alert-modern alert-info-modern mb-6">
+      <i class="fas fa-info-circle"></i>
+      <div>
+        <strong>Карточка мероприятия:</strong>
+        <a href="{% url 'card_detail' card.id %}" style="color: var(--info-color); text-decoration: none; font-weight: 600;">
+          {{ card.title }}
+        </a>
+      </div>
+    </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+      {% if form.errors %}
+      <div class="alert-modern alert-danger-modern mb-6">
+        <i class="fas fa-exclamation-circle"></i>
+        <div>
+          <strong>Проверьте поля формы:</strong>
+          <ul style="margin-top: 8px; margin-bottom: 0;">
+            {% for field, errors in form.errors.items %}
+            <li><strong>{{ field|capfirst }}:</strong> {{ errors|join:", " }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="mb-4">
+        <label class="form-label-modern">
+          Название задачи <span style="color: var(--danger-color);">*</span>
+        </label>
+        {% render_field form.title class="form-control-modern" placeholder="Введите название..." %}
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label-modern">Описание</label>
+        {% render_field form.description class="form-control-modern" rows="4" placeholder="Краткое описание..." style="resize: vertical;" %}
+      </div>
+
+      <!-- Адресаты -->
+      <div class="mb-4">
+        <label class="form-label-modern">
+          Адресаты <span style="color: var(--danger-color);">*</span>
+        </label>
+        <div id="recipients-list" class="flex flex-wrap gap-2 mb-3" style="min-height: 40px; padding: 8px; background: var(--content-bg); border-radius: 8px;"></div>
+        <button type="button" class="btn-modern btn-outline-modern" id="add-recipient-btn">
+          <i class="fas fa-plus"></i> Добавить адресата
+        </button>
+        <div id="recipients-hidden-container"></div>
+      </div>
+
+      <!-- Срок выполнения -->
+      <div class="mb-4">
+        <label class="form-label-modern">Срок выполнения</label>
+        {% render_field form.due_date class="form-control-modern" type="date" %}
+      </div>
+
+      <!-- Ссылка на Google Диск -->
+      <div class="mb-4">
+        <label class="form-label-modern">Ссылка на Google Диск</label>
+        {% render_field form.google_drive_link class="form-control-modern" placeholder="https://drive.google.com/..." %}
+      </div>
+
+      <!-- Вложение -->
+      <div class="mb-6">
+        <label class="form-label-modern">Вложение (файл)</label>
+        {% render_field form.attachment class="form-control-modern" %}
+      </div>
+
+      <div class="action-buttons">
+        <button type="submit" class="btn-modern btn-success-modern">
+          <i class="fas fa-save"></i> Создать задачу
+        </button>
+        <a href="{% url 'task_list' %}" class="btn-modern btn-outline-modern">Назад</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Модальное окно для выбора сотрудника -->
+<div id="searchModal" class="modal-modern" style="display: none;" onclick="if(event.target === this) closeModal()">
+  <div class="modal-content-modern" onclick="event.stopPropagation()">
+    <div class="flex justify-between items-center mb-4">
+      <h5 class="text-xl font-semibold">Выберите сотрудника</h5>
+      <button onclick="closeModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary);">&times;</button>
+    </div>
+    <input type="text" id="searchInput" class="form-control-modern mb-4" placeholder="Поиск по имени или должности...">
+    <div style="max-height: 400px; overflow-y: auto;">
+      <ul id="searchResults" class="task-list-modern" style="gap: 8px;"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const addBtn = document.getElementById("add-recipient-btn");
+  const recipientsList = document.getElementById("recipients-list");
+  const hiddenContainer = document.getElementById("recipients-hidden-container");
+  const searchInput = document.getElementById("searchInput");
+  const searchResults = document.getElementById("searchResults");
+  const modalEl = document.getElementById("searchModal");
+
+  const employees = {{ employees_json|safe }};
+
+  addBtn.addEventListener("click", () => {
+    searchInput.value = "";
+    renderSearchResults(employees);
+    modalEl.style.display = "flex";
+  });
+
+  function closeModal() {
+    modalEl.style.display = "none";
+  }
+
+  function renderSearchResults(list) {
+    if (list.length === 0) {
+      searchResults.innerHTML = '<li style="padding: 20px; text-align: center; color: var(--text-secondary);">Ничего не найдено</li>';
+      return;
+    }
+    searchResults.innerHTML = list.map(x => `
+      <li class="task-item-modern" data-id="${x.id}" data-name="${x.name}" style="cursor: pointer;">
+        <div style="font-weight: 500;">${x.name}</div>
+      </li>
+    `).join("");
+  }
+
+  searchInput.addEventListener("input", e => {
+    const q = e.target.value.trim().toLowerCase();
+    const filtered = employees.filter(x => x.name.toLowerCase().includes(q));
+    renderSearchResults(filtered);
+  });
+
+  searchResults.addEventListener("click", e => {
+    const li = e.target.closest("li[data-id]");
+    if (!li) return;
+    addRecipient(li.dataset.id, li.dataset.name);
+    closeModal();
+  });
+
+  function addRecipient(id, name) {
+    if ([...recipientsList.querySelectorAll("[data-id]")].some(el => el.dataset.id === id)) return;
+
+    const badge = document.createElement("div");
+    badge.className = "counter-badge-modern counter-primary";
+    badge.dataset.id = id;
+    badge.style.cursor = "pointer";
+    badge.innerHTML = `<span>${name}</span> <i class="fas fa-times" style="margin-left: 8px;"></i>`;
+    recipientsList.appendChild(badge);
+
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = "recipients";
+    hidden.value = id;
+    hidden.dataset.for = id;
+    hiddenContainer.appendChild(hidden);
+
+    badge.addEventListener("click", () => {
+      hidden.remove();
+      badge.remove();
+    });
+  }
+});
+</script>
+{% endblock %}
