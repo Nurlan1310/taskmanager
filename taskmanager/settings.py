@@ -28,6 +28,8 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5173",
     "https://taskmanager.ziyatker.org",
     "http://taskmanager.ziyatker.org",
+    "http://localhost:8002",  # 🔥 НОВОЕ: Добавлен порт 8002
+    "http://127.0.0.1:8002",
 ]
 
 # Добавьте путь к собранному фронтенду (Настройка друга)
@@ -52,7 +54,8 @@ INSTALLED_APPS = [
     
     # Наши приложения
     'tasks.apps.TasksConfig',
-    'assistant',                 # 🔥 ТВОЕ: Ассистент
+    'assistant',      
+    'smartapi',           # 🔥 ТВОЕ: Ассистент
 ]
 
 MIDDLEWARE = [

@@ -26,6 +26,8 @@ urlpatterns = [
     # Так как пути разные (my-tasks vs tasks), они не будут конфликтовать.
     path('api/', include('tasks.urls')),
 
+    path('api/smart/', include('smartapi.urls')), #Smart API
+
 
     # ==========================================================
     # ⛔️ ФРОНТЕНД ДРУГА (НЕ ТРОГАЕМ)
