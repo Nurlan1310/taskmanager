@@ -60,7 +60,7 @@ export default function Delegation() {
                     <UserCheck className="w-8 h-8 text-primary" />
                     <div>
                       <p className="font-semibold">
-                        {delegation.delegate_to.full_name}
+                        {`${delegation.delegate_to.user.first_name} ${delegation.delegate_to.user.last_name}`}
                       </p>
                       {delegation.delegate_to.position && (
                         <p className="text-sm text-muted-foreground">

@@ -368,7 +368,7 @@ export default function Statistics() {
                     { value: '', label: 'Все сотрудники отдела' },
                     ...(employees?.map((emp) => ({
                       value: emp.id.toString(),
-                      label: emp.full_name
+                      label: emp.full_name || `${emp.user.first_name} ${emp.user.last_name}` || 'Без имени'
                     })) || [])
                   ]}
                   value={selectedEmployeeId}

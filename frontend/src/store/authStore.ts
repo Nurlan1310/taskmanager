@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import api from '@/lib/api'
+import { Employee } from '@/types/task'
 
 interface User {
   id: number
@@ -7,16 +8,7 @@ interface User {
   email: string
   first_name: string
   last_name: string
-  employee?: {
-    id: number
-    position?: string
-    role?: string
-    photo_url?: string
-    department?: {
-      id: number
-      name: string
-    }
-  }
+  employee?: Employee
 }
 
 interface AuthState {

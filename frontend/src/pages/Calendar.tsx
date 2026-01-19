@@ -210,8 +210,8 @@ export default function Calendar() {
     // Добавляем tooltip в body для правильного позиционирования
     document.body.appendChild(tooltip)
 
-    let showTimeout: NodeJS.Timeout
-    let hideTimeout: NodeJS.Timeout
+    let showTimeout: ReturnType<typeof setTimeout>
+    let hideTimeout: ReturnType<typeof setTimeout>
 
     const showTooltip = (_e: MouseEvent) => {
       clearTimeout(hideTimeout)

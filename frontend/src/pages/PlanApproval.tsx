@@ -263,7 +263,7 @@ export default function PlanApproval() {
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">
-                      {approver.employee.full_name}
+                      {`${approver.employee.user.first_name} ${approver.employee.user.last_name}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {isCompleted ? 'Согласовано' : isCurrent ? 'Текущий согласующий' : 'Ожидает согласования'}
@@ -297,7 +297,7 @@ export default function PlanApproval() {
                 </div>
                 <div className="flex-1">
                   <p className="font-medium">
-                    {card.final_approver.full_name}
+                    {card.final_approver.user.first_name} {card.final_approver.user.last_name}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {card.plan_status === 'approved' ? 'Утверждено' : 'Финальный утверждающий'}
