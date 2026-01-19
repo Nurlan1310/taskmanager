@@ -21,8 +21,19 @@ export default function Header() {
   }
 
   const getInitials = () => {
-    if (user?.first_name && user?.last_name) {
-      return `${user.first_name[0]}${user.last_name[0]}`.toUpperCase()
+    if (user?.employee?.full_name_complete) {
+      const parts = user.employee.full_name_complete.split(' ')
+      if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+      }
+      return parts[0][0].toUpperCase()
+    }
+    if (user?.employee?.full_name) {
+      const parts = user.employee.full_name.split(' ')
+      if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+      }
+      return parts[0][0].toUpperCase()
     }
     return user?.username[0].toUpperCase() || 'U'
   }
@@ -60,9 +71,7 @@ export default function Header() {
           >
             <div className="text-right hidden md:block">
               <div className="text-sm font-medium">
-                {user?.first_name && user?.last_name
-                  ? `${user.first_name} ${user.last_name}`
-                  : user?.username}
+                {user?.employee?.full_name_complete || user?.employee?.full_name || user?.username}
               </div>
               {user?.employee?.position && (
                 <div className="text-xs text-muted-foreground">

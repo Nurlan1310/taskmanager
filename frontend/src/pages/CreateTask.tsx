@@ -275,7 +275,7 @@ export default function CreateTask() {
                       key={id}
                       className="px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm flex items-center gap-2"
                     >
-                      {emp.user.first_name} {emp.user.last_name}
+                      {emp.full_name_complete || emp.full_name}
                       <button
                         type="button"
                         onClick={() => toggleRecipient(id)}

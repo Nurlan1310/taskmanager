@@ -192,14 +192,14 @@ export default function Calendar() {
     }
     
     if (taskData.created_by) {
-      const creatorName = `${taskData.created_by.user?.first_name || ''} ${taskData.created_by.user?.last_name || ''}`.trim()
+      const creatorName = taskData.created_by?.full_name || ''
       if (creatorName) {
         tooltipContent += `<div style="margin-bottom: 2px;">От: ${creatorName}</div>`
       }
     }
     
     if (scopeFilter === 'department' && taskData.assigned_employee) {
-      const assigneeName = `${taskData.assigned_employee.user?.first_name || ''} ${taskData.assigned_employee.user?.last_name || ''}`.trim()
+      const assigneeName = taskData.assigned_employee?.full_name || ''
       if (assigneeName) {
         tooltipContent += `<div>Исполнитель: ${assigneeName}</div>`
       }
@@ -371,7 +371,7 @@ export default function Calendar() {
                 <option value="">Все сотрудники</option>
                 {availableEmployees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
-                    {emp.user.first_name} {emp.user.last_name}
+                    {emp.full_name}
                     {emp.position && ` (${emp.position})`}
                     {emp.department && ` - ${emp.department.name}`}
                   </option>

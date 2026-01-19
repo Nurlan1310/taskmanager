@@ -144,7 +144,7 @@ export default function TaskReview() {
                 <span>Исполнитель</span>
               </div>
               <p>
-                {base_task.assigned_employee.user.first_name} {base_task.assigned_employee.user.last_name}
+                {base_task.assigned_employee.full_name}
                 {base_task.assigned_employee.position && ` (${base_task.assigned_employee.position})`}
               </p>
             </div>

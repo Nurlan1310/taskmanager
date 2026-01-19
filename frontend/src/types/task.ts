@@ -7,6 +7,11 @@ export interface Employee {
     first_name: string
     last_name: string
   }
+  firstname?: string
+  lastname?: string
+  middlename?: string
+  full_name?: string
+  full_name_complete?: string
   position?: string
   department?: {
     id: number
@@ -16,6 +21,7 @@ export interface Employee {
   role?: string
   photo_url?: string
   internal_phone?: string
+  external_phone?: string
 }
 
 export interface Task {

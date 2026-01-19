@@ -34,11 +34,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     department = DepartmentSerializer(read_only=True)
     full_name = serializers.CharField(read_only=True)
+    full_name_complete = serializers.CharField(read_only=True)
     photo = serializers.ImageField(read_only=True)
 
     class Meta:
         model = Employee
-        fields = ['id', 'user', 'full_name', 'position', 'department', 'role', 'photo', 'internal_phone']
+        fields = ['id', 'user', 'full_name', 'full_name_complete', 'firstname', 'lastname', 'middlename', 'position', 'department', 'role', 'photo', 'internal_phone', 'external_phone']
 
 
 class CategorySerializer(serializers.ModelSerializer):

@@ -269,7 +269,7 @@ export default function TaskDetail() {
                     <span>От:</span>
                   </div>
                   <p>
-                    {task.created_by.user.first_name} {task.created_by.user.last_name}
+                    {task.created_by.full_name}
                   </p>
                 </div>
               )}
@@ -281,7 +281,7 @@ export default function TaskDetail() {
                     <span>Исполнитель:</span>
                   </div>
                   <p>
-                    {task.assigned_employee.user.first_name} {task.assigned_employee.user.last_name}
+                    {task.assigned_employee.full_name}
                   </p>
                 </div>
               )}
@@ -296,23 +296,23 @@ export default function TaskDetail() {
                     <div className="space-y-1">
                       {task.redirect_chain_employees.map((redirector, idx) => (
                         <p key={redirector.id} className="text-sm">
-                          {idx + 1}. {redirector.user.first_name} {redirector.user.last_name}
+                          {idx + 1}. {redirector.full_name}
                         </p>
                       ))}
                     </div>
                   ) : task.redirected_by ? (
                     <p>
-                      {task.redirected_by.user.first_name} {task.redirected_by.user.last_name}
+                      {task.redirected_by.full_name}
                       {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && (
                         <span className="ml-2 text-muted-foreground">
-                          • Проверяет: {task.current_reviewer.user.first_name} {task.current_reviewer.user.last_name}
+                          • Проверяет: {task.current_reviewer.full_name}
                         </span>
                       )}
                     </p>
                   ) : null}
                   {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && task.redirect_chain_employees && task.redirect_chain_employees.length > 0 && (
                     <p className="text-sm mt-1">
-                      Проверяет: {task.current_reviewer.user.first_name} {task.current_reviewer.user.last_name}
+                      Проверяет: {task.current_reviewer.full_name}
                     </p>
                   )}
                 </div>
@@ -383,7 +383,7 @@ export default function TaskDetail() {
                       )}
                       {attachment.uploaded_by && (
                         <span className="text-xs text-muted-foreground ml-auto">
-                          {attachment.uploaded_by.user.first_name} {attachment.uploaded_by.user.last_name}
+                          {attachment.uploaded_by.full_name}
                         </span>
                       )}
                     </div>
@@ -540,7 +540,7 @@ export default function TaskDetail() {
                       <p className="font-medium">{item.action_display || item.action}</p>
                     {item.employee && (
                       <p className="text-sm text-muted-foreground mt-1">
-                        {item.employee.user.first_name} {item.employee.user.last_name}
+                        {item.employee.full_name}
                       </p>
                     )}
                     {item.comment && (
@@ -583,7 +583,7 @@ export default function TaskDetail() {
                 <option value="">Выберите сотрудника</option>
                 {availableEmployeesForRedirect.map((emp) => (
                   <option key={emp.id} value={emp.id}>
-                    {emp.user.first_name} {emp.user.last_name}
+                    {emp.full_name}
                     {emp.position && ` (${emp.position})`}
                     {emp.department && ` - ${emp.department.name}`}
                   </option>

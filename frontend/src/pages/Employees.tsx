@@ -44,8 +44,8 @@ export default function Employees() {
         if (a.role === 'head' && b.role !== 'head') return -1
         if (a.role !== 'head' && b.role === 'head') return 1
         // Остальные сортируем по имени
-        const nameA = `${a.user.first_name} ${a.user.last_name}`
-        const nameB = `${b.user.first_name} ${b.user.last_name}`
+        const nameA = a.full_name || a.user.username
+        const nameB = b.full_name || b.user.username
         return nameA.localeCompare(nameB, 'ru')
       })
     })
@@ -102,7 +102,7 @@ export default function Employees() {
                             {employee.photo_url ? (
                               <img
                                 src={employee.photo_url}
-                                alt={`${employee.user.first_name} ${employee.user.last_name}`}
+                                alt={employee.full_name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
                                   const target = e.target as HTMLImageElement
@@ -117,14 +117,14 @@ export default function Employees() {
                             <div 
                               className={`w-full h-full flex items-center justify-center text-white font-semibold bg-muted ${employee.photo_url ? 'hidden' : 'flex'}`}
                             >
-                              {employee.user.first_name?.[0] || employee.user.username[0].toUpperCase()}
-                              {employee.user.last_name?.[0] || ''}
+                              {employee.middlename?.[0] || employee.user.username[0].toUpperCase()}
+                              {employee.firstname?.[0] || ''}
                             </div>
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <CardTitle className="text-lg truncate">
-                                {employee.user.first_name} {employee.user.last_name}
+                                {employee.full_name_complete || employee.full_name}
                               </CardTitle>
                               {(employee.role === 'director' || employee.role === 'deputy') && (
                                 <Crown className="w-4 h-4 text-primary flex-shrink-0" />

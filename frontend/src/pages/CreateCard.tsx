@@ -428,7 +428,7 @@ export default function CreateCard() {
                           key={id}
                           className="px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm flex items-center gap-2"
                         >
-                          {emp.user.first_name} {emp.user.last_name} {emp.position && `(${emp.position})`}
+                          {emp.full_name_complete || emp.full_name} {emp.position && `(${emp.position})`}
                           <button
                             type="button"
                             onClick={() => toggleApprover(id)}
@@ -456,8 +456,7 @@ export default function CreateCard() {
                   <div className="flex items-center gap-2 mb-2">
                     {formData.final_approver ? (
                       <div className="px-3 py-1 bg-primary text-primary-foreground rounded-full text-sm flex items-center gap-2">
-                        {finalApproverCandidates.find((e: any) => e.id === formData.final_approver)?.user.first_name}{' '}
-                        {finalApproverCandidates.find((e: any) => e.id === formData.final_approver)?.user.last_name}
+                        {finalApproverCandidates.find((e: any) => e.id === formData.final_approver)?.full_name_complete || finalApproverCandidates.find((e: any) => e.id === formData.final_approver)?.full_name}
                         <button
                           type="button"
                           onClick={() => handleChange('final_approver', null)}

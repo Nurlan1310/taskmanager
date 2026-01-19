@@ -23,8 +23,9 @@ export default function Profile() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   const [formData, setFormData] = useState({
-    first_name: user?.first_name || '',
-    last_name: user?.last_name || '',
+    firstname: user?.employee?.firstname || '',
+    lastname: user?.employee?.lastname || '',
+    middlename: user?.employee?.middlename || '',
     email: user?.email || '',
   })
   
@@ -50,8 +51,9 @@ export default function Profile() {
   useEffect(() => {
     if (profileData) {
       setFormData({
-        first_name: profileData.first_name || '',
-        last_name: profileData.last_name || '',
+        firstname: profileData.employee?.firstname || '',
+        lastname: profileData.employee?.lastname || '',
+        middlename: profileData.employee?.middlename || '',
         email: profileData.email || '',
       })
       setPhotoPreview(profileData.employee?.photo_url || null)
@@ -139,8 +141,8 @@ export default function Profile() {
   }
 
   const getInitials = () => {
-    if (formData.first_name && formData.last_name) {
-      return `${formData.first_name[0]}${formData.last_name[0]}`.toUpperCase()
+    if (formData.middlename && formData.firstname) {
+      return `${formData.middlename[0]}${formData.firstname[0]}`.toUpperCase()
     }
     return user?.username[0].toUpperCase() || 'U'
   }
@@ -220,25 +222,33 @@ export default function Profile() {
                 />
               </div>
               <div>
-                <Label htmlFor="first_name">Имя</Label>
+                <Label htmlFor="middlename">Фамилия</Label>
                 <Input
-                  id="first_name"
-                  value={formData.first_name}
+                  id="middlename"
+                  value={formData.middlename}
                   onChange={(e) =>
-                    setFormData({ ...formData, first_name: e.target.value })
+                    setFormData({ ...formData, middlename: e.target.value })
                   }
-                  required
                 />
               </div>
               <div>
-                <Label htmlFor="last_name">Фамилия</Label>
+                <Label htmlFor="firstname">Имя</Label>
                 <Input
-                  id="last_name"
-                  value={formData.last_name}
+                  id="firstname"
+                  value={formData.firstname}
                   onChange={(e) =>
-                    setFormData({ ...formData, last_name: e.target.value })
+                    setFormData({ ...formData, firstname: e.target.value })
                   }
-                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="lastname">Отчество</Label>
+                <Input
+                  id="lastname"
+                  value={formData.lastname}
+                  onChange={(e) =>
+                    setFormData({ ...formData, lastname: e.target.value })
+                  }
                 />
               </div>
               <div>

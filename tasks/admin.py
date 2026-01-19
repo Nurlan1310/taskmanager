@@ -17,13 +17,20 @@ class DepartmentAdmin(admin.ModelAdmin):
 
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
-    list_display = ("user", "position", "department", "role", "internal_phone", "delegate_to", "delegate_until")
+    list_display = ("user", "full_name", "position", "department", "role", "internal_phone", "external_phone", "delegate_to", "delegate_until")
     list_filter = ("role", "department")
-    search_fields = ("user__username", "user__first_name", "user__last_name", "position", "internal_phone")
+    search_fields = ("user__username", "firstname", "lastname", "middlename", "position", "internal_phone", "external_phone")
     raw_id_fields = ("user", "department")
     fieldsets = (
         ("Основная информация", {
-            "fields": ("user", "department", "role", "position", "photo", "internal_phone")
+            "fields": ("user", "department", "role", "position", "photo")
+        }),
+        ("ФИО", {
+            "fields": ("firstname", "lastname", "middlename"),
+            "description": "Имя, Отчество, Фамилия. Отображается в формате 'Фамилия И.О.'"
+        }),
+        ("Контакты", {
+            "fields": ("internal_phone", "external_phone")
         }),
         ("Замещение", {
             "fields": ("delegate_to", "delegate_until"),

@@ -93,7 +93,7 @@ def card_create(request):
     employees_qs = Employee.objects.select_related("user").all().order_by("user__last_name", "user__first_name")
     employees_list = []
     for e in employees_qs:
-        name = (f"{e.user.first_name} {e.user.last_name}".strip() or e.user.username)
+        name = e.full_name or e.user.username
         if e.position:
             name = f"{name} — {e.position}"
         employees_list.append({"id": e.id, "name": name})

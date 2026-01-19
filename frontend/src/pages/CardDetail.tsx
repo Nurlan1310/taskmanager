@@ -577,7 +577,7 @@ export default function CardDetail() {
                       <option value="">Все</option>
                       {availableEmployees.map((emp) => (
                         <option key={emp.id} value={emp.id}>
-                          {emp.user.first_name} {emp.user.last_name}
+                          {emp.full_name}
                           {emp.position && ` (${emp.position})`}
                         </option>
                       ))}
@@ -769,14 +769,14 @@ export default function CardDetail() {
                                 <div className="flex items-center gap-1 flex-wrap">
                                   <User className="w-4 h-4" />
                                   <span>
-                                    От: {task.created_by.user.first_name} {task.created_by.user.last_name}
+                                    От: {task.created_by.full_name}
                                   </span>
                                   {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && (
                                     <>
                                       <span className="mx-1">•</span>
                                       <User className="w-4 h-4" />
                                       <span>
-                                        Проверяет: {task.current_reviewer.user.first_name} {task.current_reviewer.user.last_name}
+                                        Проверяет: {task.current_reviewer.full_name}
                                       </span>
                                     </>
                                   )}
@@ -801,7 +801,7 @@ export default function CardDetail() {
                                 <div className="flex items-center gap-1">
                                   <User className="w-4 h-4" />
                                   <span>
-                                    Исполнитель: {task.assigned_employee.user.first_name} {task.assigned_employee.user.last_name}
+                                    Исполнитель: {task.assigned_employee.full_name}
                                   </span>
                                 </div>
                               )}
@@ -1027,8 +1027,8 @@ export default function CardDetail() {
                           const label = step.type === 'upload' 
                             ? 'Загрузка плана'
                             : step.type === 'approver'
-                            ? `${step.approver.user.first_name} ${step.approver.user.last_name}`
-                            : `${step.approver.user.first_name} ${step.approver.user.last_name}`
+                            ? step.approver.full_name
+                            : step.approver.full_name
 
                           const statusText = step.isRejectedAt
                             ? 'Отклонено'

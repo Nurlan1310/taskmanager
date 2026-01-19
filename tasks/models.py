@@ -45,6 +45,12 @@ class Employee(models.Model):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="staff")
     photo = models.ImageField(upload_to="profile_photos/", null=True, blank=True, verbose_name="Фото профиля")
     internal_phone = models.CharField(max_length=20, blank=True, null=True, verbose_name="Внутренний телефон", help_text="Внутренний номер телефона сотрудника")
+    external_phone = models.CharField(max_length=20, blank=True, null=True, verbose_name="Рабочий номер", help_text="Рабочий номер телефона сотрудника")
+    
+    # ФИО сотрудника
+    firstname = models.CharField(max_length=150, blank=True, null=True, verbose_name="Имя", help_text="Имя сотрудника")
+    lastname = models.CharField(max_length=150, blank=True, null=True, verbose_name="Отчество", help_text="Отчество сотрудника")
+    middlename = models.CharField(max_length=150, blank=True, null=True, verbose_name="Фамилия", help_text="Фамилия сотрудника")
 
     # Замещение
     delegate_to = models.ForeignKey(
@@ -62,13 +68,41 @@ class Employee(models.Model):
         verbose_name="Дата окончания замещения"
     )
 
-    # 🔥 ДОБАВЛЕНО (нужно для API): Свойство для получения ФИО
+    # 🔥 ДОБАВЛЕНО (нужно для API): Свойство для получения ФИО в формате "Фамилия И.О."
     @property
     def full_name(self):
-        """Возвращает Имя Фамилия или username, если данные не заполнены."""
-        if self.user.first_name and self.user.last_name:
-            return f"{self.user.first_name} {self.user.last_name}"
-        return self.user.get_full_name() or self.user.username
+        """Возвращает ФИО в формате 'Фамилия И.О.' или username, если данные не заполнены."""
+        if self.middlename or self.firstname or self.lastname:
+            parts = []
+            if self.middlename:
+                parts.append(self.middlename)
+            if self.firstname:
+                initial = self.firstname[0].upper() + "."
+                parts.append(initial)
+            if self.lastname:
+                initial = self.lastname[0].upper() + "."
+                parts.append(initial)
+            if parts:
+                return " ".join(parts)
+        # Fallback на username, если поля Employee не заполнены
+        return self.user.username
+    
+    # 🔥 ДОБАВЛЕНО: Свойство для получения полного ФИО в формате "Фамилия Имя Отчество"
+    @property
+    def full_name_complete(self):
+        """Возвращает полное ФИО в формате 'Фамилия Имя Отчество' или username, если данные не заполнены."""
+        if self.middlename or self.firstname or self.lastname:
+            parts = []
+            if self.middlename:
+                parts.append(self.middlename)
+            if self.firstname:
+                parts.append(self.firstname)
+            if self.lastname:
+                parts.append(self.lastname)
+            if parts:
+                return " ".join(parts)
+        # Fallback на username, если поля Employee не заполнены
+        return self.user.username
 
     def __str__(self):
         return f"{self.full_name} ({self.get_role_display()})"

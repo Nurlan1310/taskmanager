@@ -107,23 +107,26 @@ def update_profile_view(request):
     user = request.user
     data = request.data
     
-    # Обновляем поля пользователя
-    if 'first_name' in data:
-        user.first_name = data['first_name']
-    if 'last_name' in data:
-        user.last_name = data['last_name']
+    # Обновляем email пользователя
     if 'email' in data:
         user.email = data['email']
+        user.save()
     
-    user.save()
-    
-    # Возвращаем обновленные данные
+    # Обновляем поля Employee (ФИО)
     try:
         employee = user.employee
-        employee_data = EmployeeSerializer(employee).data if employee else None
-        if employee and employee.photo:
+        if 'firstname' in data:
+            employee.firstname = data['firstname']
+        if 'lastname' in data:
+            employee.lastname = data['lastname']
+        if 'middlename' in data:
+            employee.middlename = data['middlename']
+        employee.save()
+        
+        employee_data = EmployeeSerializer(employee).data
+        if employee.photo:
             employee_data['photo_url'] = request.build_absolute_uri(employee.photo.url)
-        elif employee:
+        else:
             employee_data['photo_url'] = None
     except Employee.DoesNotExist:
         employee_data = None
@@ -132,8 +135,6 @@ def update_profile_view(request):
         'id': user.id,
         'username': user.username,
         'email': user.email,
-        'first_name': user.first_name,
-        'last_name': user.last_name,
         'employee': employee_data
     })
 

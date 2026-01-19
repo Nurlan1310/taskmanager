@@ -104,7 +104,7 @@ export default function EmployeeSelector({
                     />
                     <div className="flex-1">
                       <p className="font-medium">
-                        {emp.user.first_name} {emp.user.last_name}
+                        {emp.full_name_complete || emp.full_name}
                       </p>
                       {emp.position && (
                         <p className="text-sm text-muted-foreground">{emp.position}</p>

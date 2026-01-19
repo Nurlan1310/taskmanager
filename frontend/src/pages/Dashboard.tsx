@@ -85,7 +85,7 @@ function TaskCard({ task, isTodayColumn = false }: { task: Task; isTodayColumn?:
           <div className="flex items-center gap-1">
             <User className="w-3 h-3" />
             <span>
-              От: {task.created_by.user.first_name} {task.created_by.user.last_name}
+              От: {task.created_by.full_name}
             </span>
           </div>
         )}

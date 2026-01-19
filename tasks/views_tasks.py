@@ -195,7 +195,7 @@ def task_create_for_card(request, card_id):
 
     employees_qs = Employee.objects.select_related("user").order_by("user__last_name", "user__first_name")
     employees_list = [
-        {"id": e.id, "name": f"{e.user.first_name} {e.user.last_name} ({e.position or '—'})"}
+        {"id": e.id, "name": f"{e.full_name} ({e.position or '—'})"}
         for e in employees_qs
     ]
 
