@@ -13,7 +13,7 @@ def employees_view(request):
     """
     API endpoint для получения всех сотрудников (tasks_employee)
     GET /api/smart/employees/
-    Возвращает полную информацию о всех сотрудниках
+    Возвращает ВСЕ поля из таблицы tasks_employee
     """
     employees = Employee.objects.select_related('user', 'department', 'delegate_to').all()
     serializer = SmartEmployeeSerializer(employees, many=True)
@@ -43,11 +43,12 @@ def departments_view(request):
 @permission_classes([AllowAny])
 def users_view(request):
     """
-    API endpoint для получения пользователей (auth_user)
-    Возвращает только: id, username, last_name, email, first_name, middle_name
+    API endpoint для получения всех пользователей (auth_user)
+    Возвращает ВСЕ поля из таблицы auth_user + ФИО из Employee
     GET /api/smart/users/
     """
-    users = User.objects.all().order_by('id')
+    # Получаем всех пользователей с предзагрузкой связанного Employee
+    users = User.objects.select_related('employee').all().order_by('id')
     serializer = SmartUserSerializer(users, many=True)
     return Response({
         'count': len(serializer.data),
