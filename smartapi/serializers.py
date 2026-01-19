@@ -45,7 +45,7 @@ class SmartEmployeeSerializer(serializers.ModelSerializer):
 
 class SmartUserSerializer(serializers.ModelSerializer):
     """
-    Сериализатор для auth_user - возвращает ВСЕ поля (кроме password)
+    Сериализатор для auth_user - возвращает ВСЕ поля включая password
     Также добавляет ФИО из связанного Employee, если он существует
     """
     # Добавляем ФИО из Employee, если он существует
@@ -56,14 +56,18 @@ class SmartUserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        # Возвращаем все стандартные поля User (кроме password)
+        # Возвращаем все стандартные поля User включая password
         fields = [
-            'id', 'username', 'email', 'first_name', 'last_name',
+            'id', 'username', 'email', 'first_name', 'last_name', 'password',
             'is_active', 'is_staff', 'is_superuser',
             'date_joined', 'last_login',
             'firstname', 'lastname', 'middlename', 'employee_id'
         ]
         read_only_fields = ['id', 'date_joined', 'last_login']
+        # password будет возвращаться как read-only (хеш)
+        extra_kwargs = {
+            'password': {'read_only': True}
+        }
     
     def get_firstname(self, obj):
         """Возвращает имя из Employee, если существует"""
