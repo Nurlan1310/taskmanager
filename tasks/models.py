@@ -251,16 +251,20 @@ class Task(models.Model):
     STATUS_CHOICES = [
         ('new', 'Новая'),
         ('in_progress', 'В работе'),
-        ('sent_for_review', 'Отправлена на согласование'),
-        ('under_review', 'На рассмотрении'),
+        ('sent_for_review', 'Отправлено на проверку'),
+        ('under_review', 'На проверке'),
         ('done', 'Выполнена'),
-        ('rejected', 'Отклонена')
+        ('rejected', 'Отклонена'),
+        ('pending', 'На согласовании'),
+        ('revision', 'На пересмотрении'),
+        ('send_for_approve', 'Отправлено на согласование'),
     ]
-
+    
     TASK_TYPE_CHOICES = [
         ("regular", "Обычная"),
         ("approval", "Согласование плана"),
-        ("review", "Согласование"),
+        ("review", "Согласование выполнения"),
+        ("task_approval", "Согласование задачи"),
     ]
 
     PRIORITY_CHOICES = [
@@ -282,6 +286,44 @@ class Task(models.Model):
     assigned_employee = models.ForeignKey('Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="tasks")
     redirected_by = models.ForeignKey('Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="redirected_tasks", verbose_name="Перенаправлена от")
     redirect_chain = models.JSONField(default=list, blank=True, verbose_name="Цепочка перенаправлений", help_text="Список ID сотрудников в порядке перенаправления задачи")
+    reviewers_chain = models.JSONField(default=list, blank=True, verbose_name="Цепочка проверяющих", help_text="Список ID сотрудников в порядке проверки выполнения задачи")
+    
+    # Согласование создания задачи
+    is_according_to_plan = models.BooleanField(
+        default=True,
+        verbose_name="Согласно плана",
+        help_text="Флаг, создана ли задача согласно плана",
+    )
+    creation_approval_chain = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Цепочка согласования создания",
+        help_text="Список ID сотрудников в порядке согласования создания задачи",
+    )
+    current_approval_index = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Текущий индекс согласующего по созданию",
+    )
+    
+    # Связь с другими задачами (для согласования создания и проверки выполнения)
+    parent_task = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="child_tasks",
+        verbose_name="Связанная задача",
+    )
+    relation_type = models.CharField(
+        max_length=20,
+        blank=True,
+        choices=[
+            ('creation_approval', 'Согласование создания'),
+            ('execution_review', 'Проверка выполнения'),
+        ],
+        verbose_name="Тип связи",
+    )
     
     # Для ознакомления
     cc = models.ManyToManyField('Employee', blank=True, related_name="cc_tasks", verbose_name="Для ознакомления")
@@ -317,16 +359,20 @@ class TaskHistory(models.Model):
         ("created", "Создана"),
         ("assigned", "Назначена"),
         ("taken", "Взята в работу"),
-        ("sent_for_review", "Отправлена на согласование"),
-        ("under_review", "На рассмотрении"),
+        ("sent_for_review", "Отправлена на проверку"),
+        ("under_review", "На проверке"),
         ("rejected", "Отклонена"),
         ("redirected", "Перенаправлена"),
         ("executed", "Исполнена"),
         ("done", "Завершена"),
         ("execution_updated", "Обновлено выполнение"), # Добавлено, чтобы совпадало с views
+        ("updated", "Отредактирована"), # Добавлено для редактирования задачи создателем
         ("approved", "Утверждена"), # Добавлено
         ("completed", "Завершена"), # Добавлено
         ("delegated", "Делегирована"), # Добавлено
+        ("sent_for_approve", "Отправлена на согласование"),
+        ("pending", "На согласовании"),
+        ("revision", "На пересмотрении"),
     ]
 
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="history")

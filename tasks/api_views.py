@@ -232,12 +232,13 @@ def dashboard_view(request):
     end_of_week_end = timezone.make_aware(datetime.combine(end_of_week, datetime.max.time()))
 
     # Базовый queryset для задач пользователя (только те, которые поручили)
-    # Включаем также задачи типа review и approval, которые назначены пользователю
+    # Включаем также задачи типа review, approval и task_approval, которые назначены пользователю
     base_tasks_qs = Task.objects.filter(
         Q(assigned_employee=effective_employee) |
         Q(recipients=effective_employee) |
         Q(task_type='review', assigned_employee=effective_employee) |  # Задачи на проверку
-        Q(task_type='approval', assigned_employee=effective_employee)  # Задачи на согласование
+        Q(task_type='approval', assigned_employee=effective_employee) |  # Задачи на согласование плана
+        Q(task_type='task_approval', assigned_employee=effective_employee)  # Задачи на согласование создания
     ).exclude(status='done').distinct().select_related(
         'created_by', 'assigned_employee', 'assigned_department', 'card'
     ).prefetch_related('recipients')
@@ -283,20 +284,20 @@ def dashboard_view(request):
 
     approval_tasks = Task.objects.filter(
         assigned_employee=effective_employee,
-        task_type__in=['approval', 'review']
+        task_type__in=['approval', 'review', 'task_approval']
     ).exclude(status='done').count()
 
     # Просроченные задачи (due_date < сегодня начало дня)
     overdue_tasks = base_tasks_qs.filter(
         due_date__lt=today_start,
         due_date__isnull=False
-    ).exclude(task_type__in=['review', 'approval']).order_by('due_date')
+    ).exclude(task_type__in=['review', 'approval', 'task_approval']).order_by('due_date')
 
     # Задачи на сегодня (due_date в пределах сегодняшнего дня)
-    # Включаем также задачи review и approval (даже без due_date)
+    # Включаем также задачи review, approval и task_approval (даже без due_date)
     today_tasks = base_tasks_qs.filter(
         Q(due_date__gte=today_start, due_date__lte=today_end, due_date__isnull=False) |
-        Q(task_type__in=['review', 'approval'])
+        Q(task_type__in=['review', 'approval', 'task_approval'])
     ).exclude(id__in=overdue_tasks.values_list('id', flat=True)).order_by('due_date', '-created_at')
 
     # Задачи на завтра (due_date в пределах завтрашнего дня)
@@ -304,13 +305,13 @@ def dashboard_view(request):
         due_date__gte=tomorrow_start,
         due_date__lte=tomorrow_end,
         due_date__isnull=False
-    ).exclude(task_type__in=['review', 'approval']).exclude(id__in=today_tasks.values_list('id', flat=True)).order_by('due_date')
+    ).exclude(task_type__in=['review', 'approval', 'task_approval']).exclude(id__in=today_tasks.values_list('id', flat=True)).order_by('due_date')
 
     # Остальные задачи (начиная с послезавтра)
     week_tasks = base_tasks_qs.filter(
         due_date__gt=tomorrow_end,
         due_date__isnull=False
-    ).exclude(task_type__in=['review', 'approval']).exclude(id__in=today_tasks.values_list('id', flat=True)).exclude(id__in=tomorrow_tasks.values_list('id', flat=True)).order_by('due_date')
+    ).exclude(task_type__in=['review', 'approval', 'task_approval']).exclude(id__in=today_tasks.values_list('id', flat=True)).exclude(id__in=tomorrow_tasks.values_list('id', flat=True)).order_by('due_date')
 
     return Response({
         'total_cards': total_cards,
@@ -505,6 +506,110 @@ class TaskViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(task)
         return Response(serializer.data)
 
+    def get_object(self):
+        """Переопределяем get_object для получения задачи напрямую по ID с проверкой доступа"""
+        # Получаем ID задачи из kwargs
+        task_id = self.kwargs.get('pk')
+        
+        try:
+            employee = self.request.user.employee
+        except Employee.DoesNotExist:
+            from rest_framework.exceptions import NotFound
+            raise NotFound('У пользователя нет связанного сотрудника')
+        
+        effective_employee = employee.get_effective_employee()
+        
+        # Получаем задачу напрямую по ID
+        try:
+            task = Task.objects.select_related(
+                'created_by', 'assigned_employee', 'assigned_department', 'card', 'redirected_by'
+            ).prefetch_related('recipients', 'history').get(id=task_id)
+        except Task.DoesNotExist:
+            from rest_framework.exceptions import NotFound
+            raise NotFound('Задача не найдена')
+        
+        # Проверяем доступ (аналогично retrieve)
+        has_access = False
+        
+        if effective_employee.role in ("director", "deputy"):
+            has_access = True
+        elif effective_employee.role == "head" and effective_employee.department:
+            has_access = (
+                task.created_by == effective_employee or
+                task.assigned_employee == effective_employee or
+                effective_employee in task.recipients.all() or
+                (task.assigned_department == effective_employee.department) or
+                (task.assigned_employee and task.assigned_employee.department == effective_employee.department)
+            )
+        else:
+            has_access = (
+                task.created_by == effective_employee or
+                task.assigned_employee == effective_employee or
+                effective_employee in task.recipients.all()
+            )
+        
+        if not has_access:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('У вас нет доступа к этой задаче')
+        
+        return task
+
+    def _determine_approvers(self, creator, is_according_to_plan, deputy_id=None):
+        """
+        Определяет цепочку согласующих для создания задачи.
+        
+        Логика:
+        1. Согласно плана:
+           - staff -> head отдела
+           - senior/head/deputy/director -> без согласования
+        2. Не согласно плана:
+           - staff -> head отдела, затем выбранный deputy
+           - senior/head -> только выбранный deputy
+           - deputy/director -> без согласования
+        
+        Returns:
+            list: Список Employee объектов - согласующие в порядке согласования
+        """
+        approvers = []
+        creator_role = creator.role
+        creator_dept = creator.department
+        
+        # Определяем руководителя отдела
+        head = None
+        if creator_dept:
+            head = Employee.objects.filter(
+                department=creator_dept,
+                role='head'
+            ).first()
+        
+        if is_according_to_plan:
+            # Согласно плана: только staff нуждается в согласовании head
+            if creator_role == 'staff' and head:
+                approvers = [head]
+        else:
+            # Не согласно плана
+            # Получаем выбранного заместителя
+            deputy = None
+            if deputy_id:
+                try:
+                    deputy = Employee.objects.get(id=deputy_id, role='deputy')
+                except Employee.DoesNotExist:
+                    pass
+            
+            if creator_role == 'staff':
+                # Обычный сотрудник: head, затем deputy
+                if head:
+                    approvers.append(head)
+                if deputy:
+                    approvers.append(deputy)
+            elif creator_role in ['senior', 'head']:
+                # Старший сотрудник или руководитель: только deputy
+                if deputy:
+                    approvers.append(deputy)
+            # deputy и director создают без согласования
+        
+        return approvers
+
     def create(self, request, *args, **kwargs):
         """Создание задачи(задач) - если адресатов несколько, создаем отдельную задачу для каждого"""
         serializer = self.get_serializer(data=request.data)
@@ -559,6 +664,21 @@ class TaskViewSet(viewsets.ModelViewSet):
         else:
             recipients_ids = []
         
+        # Получаем параметры согласования
+        is_according_to_plan = request.data.get('is_according_to_plan', True)
+        if isinstance(is_according_to_plan, str):
+            is_according_to_plan = is_according_to_plan.lower() in ('true', '1', 'yes')
+        
+        deputy_id = request.data.get('creation_deputy_id')
+        if deputy_id:
+            try:
+                deputy_id = int(deputy_id)
+            except (ValueError, TypeError):
+                deputy_id = None
+        
+        # Определяем согласующих
+        approvers = self._determine_approvers(employee, is_according_to_plan, deputy_id)
+        
         # Получаем файл и Google Drive ссылку для создания вложений
         file = request.FILES.get('file') or request.data.get('file')
         google_drive_link = request.data.get('google_drive_link')
@@ -597,6 +717,17 @@ class TaskViewSet(viewsets.ModelViewSet):
                     task_data = validated_data.copy()
                     task_data['created_by'] = employee
                     task_data['assigned_employee'] = recipient
+                    task_data['is_according_to_plan'] = is_according_to_plan
+                    
+                    # Определяем статус и цепочку согласования
+                    if approvers:
+                        task_data['status'] = 'send_for_approve'
+                        task_data['creation_approval_chain'] = [a.id for a in approvers]
+                        task_data['current_approval_index'] = 0
+                    else:
+                        task_data['status'] = 'new'
+                        task_data['creation_approval_chain'] = []
+                        task_data['current_approval_index'] = None
                     
                     # Создаем задачу
                     task = Task.objects.create(**task_data)
@@ -611,6 +742,33 @@ class TaskViewSet(viewsets.ModelViewSet):
                         action='created',
                         comment=f'Задача создана и назначена {recipient.full_name}'
                     )
+                    
+                    # Создаем задачи-согласования, если нужно
+                    if approvers:
+                        first_approver = approvers[0]
+                        approval_task = Task.objects.create(
+                            task_type='task_approval',
+                            status='new',
+                            title=f"Согласование поручения: {task.title}",
+                            description=f"Требуется согласование поручения:\n{task.title}",
+                            created_by=employee,
+                            assigned_employee=first_approver,
+                            parent_task=task,
+                            relation_type='creation_approval',
+                            card=task.card,
+                        )
+                        TaskHistory.objects.create(
+                            task=task,
+                            employee=employee,
+                            action='sent_for_approve',
+                            comment=f'Задача отправлена на согласование создания ({first_approver.full_name})'
+                        )
+                        TaskHistory.objects.create(
+                            task=approval_task,
+                            employee=employee,
+                            action='created',
+                            comment=f'Задача согласования создания создана'
+                        )
                     
                     # Создаем вложения для каждой задачи
                     if file_content and file_name:
@@ -642,11 +800,13 @@ class TaskViewSet(viewsets.ModelViewSet):
                 })
         else:
             # Если адресат один или не указан, создаем одну задачу через стандартный метод
-            self.perform_create(serializer, file=file, google_drive_link=google_drive_link)
+            self.perform_create(serializer, file=file, google_drive_link=google_drive_link, 
+                              is_according_to_plan=is_according_to_plan, deputy_id=deputy_id, approvers=approvers)
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-    def perform_create(self, serializer, file=None, google_drive_link=None):
+    def perform_create(self, serializer, file=None, google_drive_link=None, 
+                      is_according_to_plan=True, deputy_id=None, approvers=None):
         try:
             employee = self.request.user.employee
         except Employee.DoesNotExist:
@@ -655,6 +815,22 @@ class TaskViewSet(viewsets.ModelViewSet):
         # Удаляем google_drive_link из validated_data, так как будем создавать TaskAttachment
         validated_data = serializer.validated_data.copy()
         validated_data.pop('google_drive_link', None)
+        
+        # Устанавливаем параметры согласования
+        if approvers is None:
+            approvers = self._determine_approvers(employee, is_according_to_plan, deputy_id)
+        
+        validated_data['is_according_to_plan'] = is_according_to_plan
+        
+        # Определяем статус и цепочку согласования
+        if approvers:
+            validated_data['status'] = 'send_for_approve'
+            validated_data['creation_approval_chain'] = [a.id for a in approvers]
+            validated_data['current_approval_index'] = 0
+        else:
+            validated_data['status'] = 'new'
+            validated_data['creation_approval_chain'] = []
+            validated_data['current_approval_index'] = None
         
         task = serializer.save(created_by=employee, **validated_data)
         
@@ -684,6 +860,34 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task.assigned_employee = recipients.first()
                 task.save(update_fields=['assigned_employee'])
         
+        # Создаем задачи-согласования, если нужно
+        if approvers:
+            first_approver = approvers[0]
+            approval_task = Task.objects.create(
+                task_type='task_approval',
+                status='new',
+                title=f"Согласование создания задачи: {task.title}",
+                description=f"Требуется согласование создания задачи:\n\n{task.title}\n\n{task.description or ''}",
+                created_by=employee,
+                assigned_employee=first_approver,
+                parent_task=task,
+                relation_type='creation_approval',
+                card=task.card,
+                due_date=task.due_date,
+            )
+            TaskHistory.objects.create(
+                task=task,
+                employee=employee,
+                action='sent_for_approve',
+                comment=f'Задача отправлена на согласование создания ({first_approver.full_name})'
+            )
+            TaskHistory.objects.create(
+                task=approval_task,
+                employee=employee,
+                action='created',
+                comment=f'Задача согласования создания создана'
+            )
+        
         # Создаем вложения (файл и/или ссылка)
         from .models import TaskAttachment
         if file:
@@ -703,19 +907,219 @@ class TaskViewSet(viewsets.ModelViewSet):
         """Обновление задачи (включая изменение статуса через drag-and-drop)"""
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
+        
+        try:
+            employee = request.user.employee
+        except Employee.DoesNotExist:
+            return Response(
+                {'error': 'У пользователя нет связанного сотрудника'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        effective_employee = employee.get_effective_employee()
+        
+        # Проверяем права на редактирование
+        can_edit = False
+        
+        # Разрешаем редактирование создателю задачи только если статус revision
+        if instance.status == 'revision' and instance.created_by == effective_employee:
+            can_edit = True
+        
+        # Также разрешаем редактирование через drag-and-drop (изменение статуса)
+        # и другим стандартным способам, если они уже были разрешены
+        if not can_edit:
+            # Проверяем стандартные права доступа
+            if effective_employee.role in ("director", "deputy"):
+                can_edit = True
+            elif effective_employee.role == "head" and effective_employee.department:
+                can_edit = (
+                    instance.created_by == effective_employee or
+                    instance.assigned_employee == effective_employee or
+                    effective_employee in instance.recipients.all() or
+                    (instance.assigned_department == effective_employee.department) or
+                    (instance.assigned_employee and instance.assigned_employee.department == effective_employee.department)
+                )
+            else:
+                can_edit = (
+                    instance.created_by == effective_employee or
+                    instance.assigned_employee == effective_employee or
+                    effective_employee in instance.recipients.all()
+                )
+        
+        if not can_edit:
+            return Response(
+                {'error': 'У вас нет прав на редактирование этой задачи'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Если создатель редактирует задачу в статусе revision,
+        # обрабатываем специальным образом
+        is_creator_editing_revision = (
+            instance.status == 'revision' and 
+            instance.created_by == effective_employee
+        )
+        
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         
-        # Если меняется статус, создаём запись в истории
-        if 'status' in request.data and request.data['status'] != instance.status:
-            TaskHistory.objects.create(
-                task=instance,
-                employee=request.user.employee,
-                action='assigned' if request.data['status'] == 'in_progress' else request.data['status'],
+        # Если создатель редактирует задачу в статусе revision
+        if is_creator_editing_revision:
+            # Определяем, были ли изменения в содержимом задачи
+            changed_fields = []
+            if 'title' in request.data and request.data['title'] != instance.title:
+                changed_fields.append('название')
+            if 'description' in request.data and request.data['description'] != instance.description:
+                changed_fields.append('описание')
+            if 'due_date' in request.data:
+                new_due_date = request.data['due_date']
+                old_due_date_str = str(instance.due_date) if instance.due_date else None
+                if new_due_date != old_due_date_str:
+                    changed_fields.append('срок выполнения')
+            if 'priority' in request.data and request.data['priority'] != instance.priority:
+                changed_fields.append('приоритет')
+            
+            # Сохраняем изменения
+            self.perform_update(serializer)
+            
+            # Обновляем instance из БД для получения актуальных данных
+            instance.refresh_from_db()
+            
+            # Меняем статус на send_for_approve
+            instance.status = 'send_for_approve'
+            
+            # Определяем цепочку согласующих (используем существующую или определяем новую)
+            approvers = []
+            if instance.creation_approval_chain:
+                # Используем существующую цепочку, сохраняя порядок
+                approver_ids = instance.creation_approval_chain
+                approvers_dict = {emp.id: emp for emp in Employee.objects.filter(id__in=approver_ids)}
+                approvers = [approvers_dict[aid] for aid in approver_ids if aid in approvers_dict]
+            else:
+                # Определяем новую цепочку на основе параметров задачи
+                approvers = self._determine_approvers(
+                    instance.created_by,
+                    instance.is_according_to_plan,
+                    None  # deputy_id не сохраняется в задаче, используем None
+                )
+                if approvers:
+                    instance.creation_approval_chain = [a.id for a in approvers]
+            
+            # Запускаем цепочку согласований
+            if approvers:
+                # Удаляем старые незавершенные задачи на согласование для этой задачи
+                Task.objects.filter(
+                    parent_task=instance,
+                    task_type='task_approval',
+                    status__in=['new', 'in_progress']
+                ).delete()
+                
+                # Создаем задачу для первого согласующего
+                first_approver = approvers[0]
+                instance.current_approval_index = 0
+                
+                approval_task = Task.objects.create(
+                    task_type='task_approval',
+                    status='new',
+                    title=f"Согласование создания задачи: {instance.title}",
+                    description=f"Требуется согласование создания задачи:\n\n{instance.title}\n\n{instance.description or ''}",
+                    created_by=instance.created_by,
+                    assigned_employee=first_approver,
+                    parent_task=instance,
+                    relation_type='creation_approval',
+                    card=instance.card,
+                    due_date=instance.due_date,
+                )
+                
+                TaskHistory.objects.create(
+                    task=instance,
+                    employee=effective_employee,
+                    action='sent_for_approve',
+                    comment=f'Задача отправлена на согласование создания ({first_approver.full_name})'
+                )
+                TaskHistory.objects.create(
+                    task=approval_task,
+                    employee=effective_employee,
+                    action='created',
+                    comment=f'Задача согласования создания создана'
+                )
+            else:
+                # Нет согласующих - просто меняем статус на new
+                instance.status = 'new'
+                instance.current_approval_index = None
+                TaskHistory.objects.create(
+                    task=instance,
+                    employee=effective_employee,
+                    action='updated',
+                    comment='Задача отредактирована и готова к выполнению'
+                )
+            
+            instance.save(update_fields=['status', 'creation_approval_chain', 'current_approval_index'])
+            
+            # Создаем запись в истории об изменениях
+            if changed_fields:
+                TaskHistory.objects.create(
+                    task=instance,
+                    employee=effective_employee,
+                    action='updated',
+                    comment=f'Задача отредактирована: изменено {", ".join(changed_fields)}'
+                )
+        else:
+            # Обычное обновление - если меняется статус, создаём запись в истории
+            if 'status' in request.data and request.data['status'] != instance.status:
+                TaskHistory.objects.create(
+                    task=instance,
+                    employee=effective_employee,
+                    action='assigned' if request.data['status'] == 'in_progress' else request.data['status'],
+                )
+            
+            self.perform_update(serializer)
+        
+        # Возвращаем обновленную задачу
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def destroy(self, request, *args, **kwargs):
+        """Удаление задачи - только для статуса revision и только для создателя"""
+        instance = self.get_object()
+        
+        try:
+            employee = request.user.employee
+        except Employee.DoesNotExist:
+            return Response(
+                {'error': 'У пользователя нет связанного сотрудника'},
+                status=status.HTTP_403_FORBIDDEN
             )
         
-        self.perform_update(serializer)
-        return Response(serializer.data)
+        effective_employee = employee.get_effective_employee()
+        
+        # Проверяем, что задача в статусе revision
+        if instance.status != 'revision':
+            return Response(
+                {'error': 'Задачу можно удалить только в статусе "На пересмотрении"'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Проверяем, что пользователь - создатель задачи
+        if instance.created_by != effective_employee:
+            return Response(
+                {'error': 'Только создатель задачи может её удалить'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Удаляем связанные задачи на согласование, если они есть
+        with transaction.atomic():
+            Task.objects.filter(
+                parent_task=instance,
+                task_type='task_approval'
+            ).delete()
+            
+            # Удаляем задачу
+            instance.delete()
+        
+        return Response(
+            {'message': 'Задача успешно удалена'},
+            status=status.HTTP_204_NO_CONTENT
+        )
 
 
 class EventCardViewSet(viewsets.ModelViewSet):
@@ -945,15 +1349,8 @@ def take_task_view(request, task_id):
 
         # Если это задача на проверку (review), обновляем статус исходной задачи
         if task.task_type == 'review':
-            # Ищем исходную задачу по маркеру
-            base_task = None
-            if task.description:
-                m = re.search(r"\[orig_task_id\s*:\s*(\d+)\]", task.description)
-                if m:
-                    try:
-                        base_task = Task.objects.filter(id=int(m.group(1))).first()
-                    except ValueError:
-                        base_task = None
+            # Ищем исходную задачу через parent_task
+            base_task = task.parent_task
 
             if base_task:
                 base_task.status = "under_review"
@@ -962,7 +1359,20 @@ def take_task_view(request, task_id):
                     task=base_task,
                     employee=effective_employee,
                     action="under_review",
-                    comment="Задача принята на рассмотрение."
+                    comment="На проверке"
+                )
+        
+        # Если это задача согласования создания (task_approval), обновляем статус основной задачи
+        if task.task_type == 'task_approval':
+            main_task = task.parent_task
+            if main_task and main_task.status == 'send_for_approve':
+                main_task.status = 'pending'
+                main_task.save(update_fields=['status'])
+                TaskHistory.objects.create(
+                    task=main_task,
+                    employee=effective_employee,
+                    action='pending',
+                    comment='Принята на согласование'
                 )
 
     return Response(TaskSerializer(task).data)
@@ -1033,10 +1443,10 @@ def execute_task_view(request, task_id):
         # Ищем задачу на проверку
         review_task = (
             Task.objects.filter(
-                card=task.card,
+                parent_task=task,
                 task_type="review",
                 assigned_employee=task.created_by,
-                description__icontains=f"[orig_task_id:{task.id}]"
+                relation_type='execution_review'
             )
             .order_by("-created_at")
             .first()
@@ -1060,7 +1470,7 @@ def execute_task_view(request, task_id):
             comment_text = description or "Исполнитель внёс изменения в выполнение."
         else:
             action_label = "sent_for_review"
-            comment_text = description or "Задача отправлена на согласование."
+            comment_text = description or "Отправлено на проверку"
 
         # Запись в историю
         TaskHistory.objects.create(
@@ -1103,67 +1513,62 @@ def execute_task_view(request, task_id):
         # В конце добавляем создателя задачи
         reviewers_chain.append(task.created_by)
         
-        # Ищем последнюю задачу на проверку выполнения для каждого проверяющего
-        # Создатель первой задачи на проверку - исполнитель
-        review_creator = employee
-        for idx, reviewer in enumerate(reviewers_chain):
-            last_review = (
-                Task.objects.filter(
-                    card=task.card,
-                    task_type="review",
-                    assigned_employee=reviewer,
-                    description__icontains=f"[orig_task_id:{task.id}]"
-                )
-                .order_by("-created_at")
-                .first()
+        # Сохраняем цепочку проверяющих в задаче для последующего использования
+        task.reviewers_chain = [r.id for r in reviewers_chain]
+        task.save(update_fields=['reviewers_chain'])
+        
+        # Ищем существующую задачу на проверку для первого проверяющего
+        first_reviewer = reviewers_chain[0]
+        existing_review = (
+            Task.objects.filter(
+                parent_task=task,
+                task_type="review",
+                assigned_employee=first_reviewer,
+                relation_type='execution_review'
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        
+        if not existing_review or existing_review.status == "done":
+            # Создаем только первую задачу на проверку для первого проверяющего
+            # Остальные задачи будут создаваться последовательно после утверждения предыдущей
+            review_task = Task.objects.create(
+                title=f"Проверить выполнение задачи «{task.title}»",
+                description=(
+                    f"Исполнитель {employee.user.get_full_name() or employee.user.username} "
+                    f"отправил материалы на согласование.\n\n{description or ''}"
+                ),
+                card=task.card,
+                assigned_employee=first_reviewer,
+                created_by=employee,
+                parent_task=task,
+                relation_type='execution_review',
+                task_type="review",
+                status="new",
+                priority="normal",
             )
             
-            # Если review нет или она уже завершена — создаём новую
-            if not last_review or last_review.status == "done":
-                # Для первой задачи на проверку создатель - исполнитель, для остальных - предыдущий проверяющий
-                if idx == 0:
-                    # Первая задача на проверку создается от исполнителя
-                    review_creator = employee
-                else:
-                    # Остальные задачи создаются от предыдущего проверяющего
-                    review_creator = reviewers_chain[idx - 1]
-                
-                review_task = Task.objects.create(
-                    title=f"Проверить выполнение задачи «{task.title}»",
-                    description=(
-                        f"[orig_task_id:{task.id}]\n"
-                        f"{'Исполнитель' if idx == 0 else 'Проверяющий'} {review_creator.user.get_full_name() or review_creator.user.username} "
-                        f"отправил материалы на согласование.\n\n{description or ''}"
-                    ),
-                    card=task.card,
-                    assigned_employee=reviewer,
-                    created_by=review_creator,
-                    task_type="review",
-                    status="new",
-                    priority="normal",
-                )
-                
-                TaskHistory.objects.create(
-                    task=review_task,
-                    employee=review_creator,
-                    action="created",
-                    comment=f"Создана задача для проверки выполнения. Проверяющий: {reviewer.full_name}."
-                )
-            else:
-                # Если review ещё не завершена — просто обновляем её
-                last_review.description = (
-                    f"[orig_task_id:{task.id}]\n"
-                    f"Исполнитель обновил выполнение задачи.\n\n{description or last_review.description}"
-                )
-                last_review.status = "new"
-                last_review.save(update_fields=["description", "status"])
-                
-                TaskHistory.objects.create(
-                    task=last_review,
-                    employee=employee,
-                    action="execution_updated",
-                    comment="Исполнитель обновил выполнение, добавлены новые материалы."
-                )
+            TaskHistory.objects.create(
+                task=review_task,
+                employee=employee,
+                action="created",
+                comment=f"Создана задача для проверки выполнения. Проверяющий: {first_reviewer.full_name}."
+            )
+        else:
+            # Если review ещё не завершена — просто обновляем её
+            existing_review.description = (
+                f"Исполнитель обновил выполнение задачи.\n\n{description or existing_review.description}"
+            )
+            existing_review.status = "new"
+            existing_review.save(update_fields=["description", "status"])
+            
+            TaskHistory.objects.create(
+                task=existing_review,
+                employee=employee,
+                action="execution_updated",
+                comment="Исполнитель обновил выполнение, добавлены новые материалы."
+            )
 
     return Response(TaskSerializer(task).data)
 
@@ -1692,24 +2097,8 @@ def task_review_view(request, task_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Ищем исходную задачу по маркеру
-    base_task = None
-    if review_task.description:
-        m = re.search(r"\[orig_task_id\s*:\s*(\d+)\]", review_task.description)
-        if m:
-            try:
-                base_task = Task.objects.filter(id=int(m.group(1))).first()
-            except ValueError:
-                base_task = None
-
-    # Если не нашли по маркеру, fallback по названию
-    if not base_task:
-        trimmed = review_task.title.replace("Проверить выполнение задачи", "").strip(" «»\"'")
-        if trimmed:
-            base_task = Task.objects.filter(
-                card=review_task.card,
-                title__icontains=trimmed
-            ).exclude(id=review_task.id).order_by("-created_at").first()
+    # Ищем исходную задачу через parent_task
+    base_task = review_task.parent_task
 
     if not base_task:
         return Response(
@@ -1772,11 +2161,14 @@ def task_review_approve_view(request, task_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Ищем исходную задачу
-    base_task = None
-    m = re.search(r"\[orig_task_id\s*:\s*(\d+)\]", review_task.description or "")
-    if m:
-        base_task = Task.objects.filter(id=int(m.group(1))).first()
+    # Ищем исходную задачу через parent_task
+    base_task = review_task.parent_task
+
+    if not base_task:
+        return Response(
+            {'error': 'Исходная задача не найдена'},
+            status=status.HTTP_404_NOT_FOUND
+        )
 
     comment = request.data.get('comment', '').strip()
 
@@ -1791,18 +2183,26 @@ def task_review_approve_view(request, task_id):
             comment=comment or "Проверка выполнена, задача утверждена."
         )
 
-        if base_task:
-            # Определяем цепочку проверяющих из redirect_chain
+        # Определяем цепочку проверяющих из сохраненной цепочки или пересчитываем
+        if base_task.reviewers_chain:
+            # Используем сохраненную цепочку
+            reviewers_dict = {
+                emp.id: emp for emp in Employee.objects.filter(id__in=base_task.reviewers_chain)
+            }
+            reviewers_chain = [
+                reviewers_dict[emp_id] 
+                for emp_id in base_task.reviewers_chain 
+                if emp_id in reviewers_dict
+            ]
+        else:
+            # Fallback: пересчитываем цепочку (для старых задач)
             reviewers_chain = []
             
             # Если есть цепочка перенаправлений, добавляем всех перенаправивших в обратном порядке
             if base_task.redirect_chain:
-                # Получаем сотрудников по ID из цепочки, сохраняя порядок из списка
-                # Создаем словарь для быстрого доступа
                 redirect_employees_dict = {
                     emp.id: emp for emp in Employee.objects.filter(id__in=base_task.redirect_chain)
                 }
-                # Строим список в порядке из redirect_chain (последний перенаправивший проверяет первым)
                 redirect_employees = [
                     redirect_employees_dict[emp_id] 
                     for emp_id in reversed(base_task.redirect_chain) 
@@ -1812,65 +2212,66 @@ def task_review_approve_view(request, task_id):
             
             # В конце добавляем создателя задачи
             reviewers_chain.append(base_task.created_by)
-            
-            # Проверяем, является ли текущий проверяющий последним в цепочке
-            try:
-                current_reviewer_index = reviewers_chain.index(effective_reviewer)
-                is_last_reviewer = current_reviewer_index == len(reviewers_chain) - 1
-            except ValueError:
-                # Если проверяющий не найден в цепочке, считаем его последним
-                is_last_reviewer = True
-            
-            if is_last_reviewer:
-                # Если это последний проверяющий, завершаем исходную задачу
-                base_task.status = "done"
-                base_task.review_comment = comment or "Задача утверждена без комментария."
-                base_task.save(update_fields=["status", "review_comment"])
-                TaskHistory.objects.create(
-                    task=base_task,
-                    employee=effective_reviewer,
-                    action="done",
-                    comment=comment or "Задача проверена и утверждена всеми проверяющими."
-                )
-            else:
-                # Если есть еще проверяющие, создаем задачу на проверку для следующего
-                next_reviewer_index = current_reviewer_index + 1
-                if next_reviewer_index < len(reviewers_chain):
-                    next_reviewer = reviewers_chain[next_reviewer_index]
-                    
-                    # Проверяем, нет ли уже задачи на проверку для следующего проверяющего
-                    existing_review = Task.objects.filter(
+        
+        # Проверяем, является ли текущий проверяющий последним в цепочке
+        try:
+            current_reviewer_index = reviewers_chain.index(effective_reviewer)
+            is_last_reviewer = current_reviewer_index == len(reviewers_chain) - 1
+        except ValueError:
+            # Если проверяющий не найден в цепочке, считаем его последним
+            is_last_reviewer = True
+        
+        if is_last_reviewer:
+            # Если это последний проверяющий, завершаем исходную задачу
+            base_task.status = "done"
+            base_task.review_comment = comment or "Задача утверждена без комментария."
+            base_task.save(update_fields=["status", "review_comment"])
+            TaskHistory.objects.create(
+                task=base_task,
+                employee=effective_reviewer,
+                action="done",
+                comment=comment or "Задача проверена и утверждена всеми проверяющими."
+            )
+        else:
+            # Если есть еще проверяющие, создаем задачу на проверку для следующего
+            next_reviewer_index = current_reviewer_index + 1
+            if next_reviewer_index < len(reviewers_chain):
+                next_reviewer = reviewers_chain[next_reviewer_index]
+                
+                # Проверяем, нет ли уже задачи на проверку для следующего проверяющего
+                existing_review = Task.objects.filter(
+                    parent_task=base_task,
+                    task_type="review",
+                    assigned_employee=next_reviewer,
+                    relation_type='execution_review'
+                ).exclude(id=review_task.id).order_by("-created_at").first()
+                
+                if not existing_review or existing_review.status == "done":
+                    # Создаем новую задачу на проверку для следующего проверяющего
+                    # Создатель - текущий проверяющий (не исполнитель!)
+                    next_review_task = Task.objects.create(
+                        title=f"Проверить выполнение задачи «{base_task.title}»",
+                        description=(
+                            f"Проверяющий {effective_reviewer.user.get_full_name() or effective_reviewer.user.username} "
+                            f"утвердил выполнение. Задача передана на проверку следующему проверяющему.\n\n"
+                            f"{review_task.description or ''}"
+                        ),
                         card=base_task.card,
-                        task_type="review",
                         assigned_employee=next_reviewer,
-                        description__icontains=f"[orig_task_id:{base_task.id}]"
-                    ).exclude(id=review_task.id).order_by("-created_at").first()
+                        created_by=effective_reviewer,  # Создатель - текущий проверяющий
+                        parent_task=base_task,
+                        relation_type='execution_review',
+                        task_type="review",
+                        status="new",
+                        priority="normal",
+                    )
                     
-                    if not existing_review or existing_review.status == "done":
-                        # Создаем новую задачу на проверку для следующего проверяющего
-                        # Создатель - текущий проверяющий (не исполнитель!)
-                        next_review_task = Task.objects.create(
-                            title=f"Проверить выполнение задачи «{base_task.title}»",
-                            description=(
-                                f"[orig_task_id:{base_task.id}]\n"
-                                f"Проверяющий {effective_reviewer.user.get_full_name() or effective_reviewer.user.username} "
-                                f"утвердил выполнение. Задача передана на проверку следующему проверяющему.\n\n"
-                                f"{review_task.description or ''}"
-                            ),
-                            card=base_task.card,
-                            assigned_employee=next_reviewer,
-                            created_by=effective_reviewer,  # Создатель - текущий проверяющий
-                            task_type="review",
-                            status="new",
-                            priority="normal",
-                        )
-                        
-                        TaskHistory.objects.create(
-                            task=next_review_task,
-                            employee=effective_reviewer,
-                            action="created",
-                            comment=f"Создана задача для проверки выполнения. Проверяющий: {next_reviewer.full_name}."
-                        )
+                    TaskHistory.objects.create(
+                        task=next_review_task,
+                        employee=effective_reviewer,
+                        action="created",
+                        comment=f"Создана задача для проверки выполнения. Проверяющий: {next_reviewer.full_name}."
+                    )
 
     from .serializers import TaskSerializer
     return Response(TaskSerializer(base_task).data if base_task else TaskSerializer(review_task).data)
@@ -1902,11 +2303,8 @@ def task_review_reject_view(request, task_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Ищем исходную задачу
-    base_task = None
-    m = re.search(r"\[orig_task_id\s*:\s*(\d+)\]", review_task.description or "")
-    if m:
-        base_task = Task.objects.filter(id=int(m.group(1))).first()
+    # Ищем исходную задачу через parent_task
+    base_task = review_task.parent_task
 
     comment = request.data.get('comment', '').strip()
     
@@ -2163,3 +2561,325 @@ def statistics_view(request):
     }
     
     return Response(result)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def approve_creation_view(request, task_id):
+    """Согласование создания задачи"""
+    try:
+        employee = request.user.employee
+    except Employee.DoesNotExist:
+        return Response(
+            {'error': 'У пользователя нет связанного сотрудника'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    effective_employee = employee.get_effective_employee()
+    
+    # Получаем задачу-согласование
+    approval_task = get_object_or_404(Task, id=task_id, task_type='task_approval')
+    
+    # Проверяем права
+    if approval_task.assigned_employee.get_effective_employee() != effective_employee:
+        return Response(
+            {'error': 'У вас нет прав на согласование этой задачи'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Получаем основную задачу
+    main_task = approval_task.parent_task
+    if not main_task:
+        return Response(
+            {'error': 'Не найдена связанная задача'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    comment = request.data.get('comment', '')
+    
+    with transaction.atomic():
+        # Закрываем текущую задачу-согласование
+        approval_task.status = 'done'
+        approval_task.save(update_fields=['status'])
+        TaskHistory.objects.create(
+            task=approval_task,
+            employee=effective_employee,
+            action='approved',
+            comment=comment
+        )
+        
+        # Проверяем, есть ли еще согласующие в цепочке
+        chain = main_task.creation_approval_chain or []
+        current_idx = main_task.current_approval_index or 0
+        
+        if current_idx + 1 < len(chain):
+            # Есть следующий согласующий
+            next_approver_id = chain[current_idx + 1]
+            try:
+                next_approver = Employee.objects.get(id=next_approver_id)
+            except Employee.DoesNotExist:
+                return Response(
+                    {'error': 'Следующий согласующий не найден'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Создаем задачу для следующего согласующего
+            next_approval_task = Task.objects.create(
+                task_type='task_approval',
+                status='new',
+                title=f"Согласование поручения: {main_task.title}",
+                description=f"Требуется согласование поручения:\n{main_task.title}",
+                created_by=main_task.created_by,
+                assigned_employee=next_approver,
+                parent_task=main_task,
+                relation_type='creation_approval',
+                card=main_task.card,
+            )
+            
+            # Обновляем индекс
+            main_task.current_approval_index = current_idx + 1
+            main_task.save(update_fields=['current_approval_index'])
+            
+            TaskHistory.objects.create(
+                task=main_task,
+                employee=effective_employee,
+                action='pending',
+                comment=f'Задача передана на согласование ({next_approver.full_name})'
+            )
+            TaskHistory.objects.create(
+                task=next_approval_task,
+                employee=effective_employee,
+                action='created',
+                comment=f'Задача согласования создания создана'
+            )
+        else:
+            # Согласование завершено
+            main_task.status = 'new'
+            main_task.current_approval_index = None
+            main_task.save(update_fields=['status', 'current_approval_index'])
+            
+            TaskHistory.objects.create(
+                task=main_task,
+                employee=effective_employee,
+                action='approved',
+                comment='Создание задачи согласовано'
+            )
+            
+            # Закрываем все незавершенные задачи-согласования для этой задачи
+            Task.objects.filter(
+                parent_task=main_task,
+                task_type='task_approval',
+                status__in=['new', 'in_progress']
+            ).exclude(id=approval_task.id).update(status='done')
+    
+    return Response({
+        'message': 'Создание задачи согласовано',
+        'task': TaskSerializer(main_task).data
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def recall_task_view(request, task_id):
+    """Отзыв задачи из статуса send_for_approve или new (без цепочки согласующих) - меняет статус на revision"""
+    try:
+        employee = request.user.employee
+    except Employee.DoesNotExist:
+        return Response(
+            {'error': 'У пользователя нет связанного сотрудника'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    effective_employee = employee.get_effective_employee()
+    
+    # Получаем задачу
+    task = get_object_or_404(Task, id=task_id)
+    
+    # Проверяем, что задача в статусе send_for_approve или new (без цепочки согласующих)
+    has_approval_chain = task.creation_approval_chain and len(task.creation_approval_chain) > 0
+    if task.status == 'send_for_approve':
+        # Отзыв из send_for_approve - удаляем задачи на согласование
+        should_delete_approval_tasks = True
+    elif task.status == 'new' and not has_approval_chain:
+        # Отзыв из new (без цепочки) - просто меняем статус
+        should_delete_approval_tasks = False
+    else:
+        return Response(
+            {'error': 'Задачу можно отозвать только из статуса "Отправлено на согласование" или "Новая" (без цепочки согласующих)'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Проверяем, что пользователь - создатель задачи
+    if task.created_by != effective_employee:
+        return Response(
+            {'error': 'Только создатель задачи может её отозвать'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    with transaction.atomic():
+        # Если были задачи на согласование - удаляем их
+        if should_delete_approval_tasks:
+            approval_tasks = Task.objects.filter(
+                parent_task=task,
+                task_type='task_approval',
+                status__in=['new', 'in_progress']
+            )
+            
+            # Создаем записи в истории для удаляемых задач
+            for approval_task in approval_tasks:
+                TaskHistory.objects.create(
+                    task=approval_task,
+                    employee=effective_employee,
+                    action='rejected',
+                    comment='Задача отозвана создателем'
+                )
+            
+            # Удаляем задачи на согласование
+            approval_tasks.delete()
+        
+        # Определяем исходный статус для правильного комментария (до изменения)
+        original_status = task.status
+        comment_text = 'Задача отозвана создателем для доработки'
+        if original_status == 'new':
+            comment_text = 'Задача переведена в статус "На пересмотрении" для доработки'
+        
+        # Меняем статус задачи на revision
+        task.status = 'revision'
+        task.current_approval_index = None
+        task.save(update_fields=['status', 'current_approval_index'])
+        
+        TaskHistory.objects.create(
+            task=task,
+            employee=effective_employee,
+            action='revision',
+            comment=comment_text
+        )
+    
+    return Response({
+        'message': 'Задача отозвана и переведена в статус "На пересмотрении"',
+        'task': TaskSerializer(task, context={'request': request}).data
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def creation_approval_view(request, task_id):
+    """Получение данных для страницы согласования создания задачи"""
+    from .serializers import TaskAttachmentSerializer
+    
+    approval_task = get_object_or_404(Task, id=task_id, task_type='task_approval')
+    
+    try:
+        employee = request.user.employee
+    except Employee.DoesNotExist:
+        return Response(
+            {'error': 'У пользователя нет связанного сотрудника'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    effective_employee = employee.get_effective_employee()
+    
+    # Проверяем права
+    if approval_task.assigned_employee.get_effective_employee() != effective_employee:
+        return Response(
+            {'error': 'У вас нет прав на просмотр этой задачи'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Получаем основную задачу
+    main_task = approval_task.parent_task
+    if not main_task:
+        return Response(
+            {'error': 'Не найдена связанная задача'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Получаем вложения основной задачи
+    attachments = main_task.attachments.all()
+    
+    # Сериализуем вложения с контекстом запроса для правильных URL
+    attachments_data = []
+    for attachment in attachments:
+        serializer = TaskAttachmentSerializer(attachment, context={'request': request})
+        attachments_data.append(serializer.data)
+    
+    return Response({
+        'approval_task': TaskSerializer(approval_task, context={'request': request}).data,
+        'main_task': TaskSerializer(main_task, context={'request': request}).data,
+        'attachments': attachments_data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reject_creation_view(request, task_id):
+    """Отклонение создания задачи"""
+    try:
+        employee = request.user.employee
+    except Employee.DoesNotExist:
+        return Response(
+            {'error': 'У пользователя нет связанного сотрудника'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    effective_employee = employee.get_effective_employee()
+    
+    # Получаем задачу-согласование
+    approval_task = get_object_or_404(Task, id=task_id, task_type='task_approval')
+    
+    # Проверяем права
+    if approval_task.assigned_employee.get_effective_employee() != effective_employee:
+        return Response(
+            {'error': 'У вас нет прав на отклонение этой задачи'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Получаем основную задачу
+    main_task = approval_task.parent_task
+    if not main_task:
+        return Response(
+            {'error': 'Не найдена связанная задача'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    comment = request.data.get('comment', '')
+    if not comment:
+        return Response(
+            {'error': 'Необходимо указать причину отклонения'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    with transaction.atomic():
+        # Закрываем текущую задачу-согласование (статус done)
+        approval_task.status = 'done'
+        approval_task.save(update_fields=['status'])
+        TaskHistory.objects.create(
+            task=approval_task,
+            employee=effective_employee,
+            action='rejected',
+            comment=comment
+        )
+        
+        # Основная задача переходит в статус "На пересмотрении"
+        main_task.status = 'revision'
+        main_task.current_approval_index = None
+        main_task.save(update_fields=['status', 'current_approval_index'])
+        
+        TaskHistory.objects.create(
+            task=main_task,
+            employee=effective_employee,
+            action='rejected',
+            comment=f'Создание задачи отклонено: {comment}'
+        )
+        
+        # Закрываем все незавершенные задачи-согласования для этой задачи
+        Task.objects.filter(
+            parent_task=main_task,
+            task_type='task_approval',
+            status__in=['new', 'in_progress']
+        ).exclude(id=approval_task.id).update(status='done')
+    
+    return Response({
+        'message': 'Создание задачи отклонено',
+        'task': TaskSerializer(main_task).data
+    })

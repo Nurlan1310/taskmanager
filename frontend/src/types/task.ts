@@ -28,8 +28,8 @@ export interface Task {
   id: number
   title: string
   description: string
-  status: 'new' | 'in_progress' | 'done' | 'under_review' | 'sent_for_review' | 'rejected'
-  task_type: 'regular' | 'approval' | 'review'
+  status: 'new' | 'in_progress' | 'done' | 'under_review' | 'sent_for_review' | 'rejected' | 'pending' | 'revision' | 'send_for_approve'
+  task_type: 'regular' | 'approval' | 'review' | 'task_approval'
   priority?: 'low' | 'normal' | 'high' | 'urgent'
   created_at: string
   due_date?: string
@@ -52,6 +52,12 @@ export interface Task {
   redirect_chain?: number[]
   redirect_chain_employees?: Employee[]
   current_reviewer?: Employee
+  current_approver?: Employee
+  is_according_to_plan?: boolean
+  creation_approval_chain?: number[]
+  current_approval_index?: number | null
+  parent_task?: number
+  relation_type?: 'creation_approval' | 'execution_review'
 }
 
 export interface TaskAttachment {

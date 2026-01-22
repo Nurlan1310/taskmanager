@@ -71,9 +71,12 @@ const statusLabels: Record<TaskStatus, string> = {
   new: 'Новая',
   in_progress: 'В работе',
   done: 'Выполнена',
-  under_review: 'На рассмотрении',
-  sent_for_review: 'Отправлена на согласование',
+  under_review: 'На проверке',
+  sent_for_review: 'Отправлено на проверку',
   rejected: 'Отклонена',
+  pending: 'На согласовании',
+  revision: 'На пересмотрении',
+  send_for_approve: 'Отправлено на согласование',
 }
 
 const statusColors: Record<TaskStatus, string> = {
@@ -83,6 +86,9 @@ const statusColors: Record<TaskStatus, string> = {
   under_review: 'bg-blue-500',
   sent_for_review: 'bg-purple-500',
   rejected: 'bg-red-500',
+  pending: 'bg-orange-500',
+  revision: 'bg-amber-500',
+  send_for_approve: 'bg-indigo-500',
 }
 
 type TaskScope = 'mine' | 'department' | 'all'

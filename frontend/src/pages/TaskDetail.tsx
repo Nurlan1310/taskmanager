@@ -18,7 +18,9 @@ import {
   ExternalLink,
   Paperclip,
   History,
-  Share2
+  Share2,
+  Edit,
+  Trash2
 } from 'lucide-react'
 import { useState } from 'react'
 import { formatDateTimeInAstanaTime } from '@/lib/dateUtils'
@@ -27,9 +29,12 @@ const statusLabels: Record<string, string> = {
   new: 'Новая',
   in_progress: 'В работе',
   done: 'Выполнена',
-  under_review: 'На рассмотрении',
-  sent_for_review: 'Отправлена на согласование',
+  under_review: 'На проверке',
+  sent_for_review: 'Отправлено на проверку',
   rejected: 'Отклонена',
+  pending: 'На согласовании',
+  revision: 'На пересмотрении',
+  send_for_approve: 'Отправлено на согласование',
 }
 
 const statusColors: Record<string, string> = {
@@ -39,6 +44,9 @@ const statusColors: Record<string, string> = {
   under_review: 'bg-blue-500',
   sent_for_review: 'bg-purple-500',
   rejected: 'bg-red-500',
+  pending: 'bg-orange-500',
+  revision: 'bg-amber-500',
+  send_for_approve: 'bg-indigo-500',
 }
 
 const historyActionColors: Record<string, string> = {
@@ -139,6 +147,47 @@ export default function TaskDetail() {
     },
   })
 
+  const recallTaskMutation = useMutation({
+    mutationFn: async () => {
+      return api.post(`/tasks/${id}/recall/`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['task', id] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+    onError: (error: any) => {
+      alert(error?.response?.data?.error || 'Ошибка при отзыве задачи')
+    },
+  })
+
+  const handleRecall = () => {
+    if (window.confirm('Вы уверены, что хотите отозвать задачу? Задача будет переведена в статус "На пересмотрении"!')) {
+      recallTaskMutation.mutate()
+    }
+  }
+
+  const deleteTaskMutation = useMutation({
+    mutationFn: async () => {
+      return api.delete(`/tasks/${id}/`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      // Перенаправляем на список задач
+      window.location.href = '/tasks'
+    },
+    onError: (error: any) => {
+      alert(error?.response?.data?.error || 'Ошибка при удалении задачи')
+    },
+  })
+
+  const handleDelete = () => {
+    if (window.confirm('Вы уверены, что хотите удалить задачу? Это действие нельзя отменить.')) {
+      deleteTaskMutation.mutate()
+    }
+  }
+
   const handleRedirect = () => {
     if (!selectedRedirectEmployeeId) {
       alert('Выберите нового исполнителя')
@@ -198,6 +247,19 @@ export default function TaskDetail() {
     ['deputy', 'head'].includes(currentUser.employee.role) &&
     (task.status === 'new' || task.status === 'in_progress')
 
+  // Проверяем, может ли создатель редактировать или отозвать задачу
+  const isCreator = user?.employee?.id && task.created_by?.id === user.employee.id
+  // Редактирование доступно только для статуса revision
+  const canEdit = isCreator && task.status === 'revision'
+  // Отзыв доступен для:
+  // 1. Статус send_for_approve
+  // 2. Статус new и нет цепочки согласующих
+  const hasApprovalChain = task.creation_approval_chain && task.creation_approval_chain.length > 0
+  const canRecall = isCreator && (
+    task.status === 'send_for_approve' || 
+    (task.status === 'new' && !hasApprovalChain)
+  )
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -209,9 +271,9 @@ export default function TaskDetail() {
         <div className="flex-1">
           <h1 className="text-3xl font-bold">{task.title}</h1>
           <div className="flex items-center gap-2 mt-2">
-            {(task.task_type === 'approval' || task.task_type === 'review') && (
+            {(task.task_type === 'approval' || task.task_type === 'review' || task.task_type === 'task_approval') && (
               <Badge variant="default" className="bg-blue-500">
-                {task.task_type === 'approval' ? 'Согласование' : 'Проверка'}
+                {task.task_type === 'approval' ? 'Согласование плана' : task.task_type === 'review' ? 'Проверка' : 'Согласование создания'}
               </Badge>
             )}
             <Badge className={statusColors[task.status]}>
@@ -286,6 +348,7 @@ export default function TaskDetail() {
                 </div>
               )}
 
+              {/* Перенаправляющие */}
               {(task.redirected_by || (task.redirect_chain_employees && task.redirect_chain_employees.length > 0)) && (
                 <div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
@@ -303,18 +366,34 @@ export default function TaskDetail() {
                   ) : task.redirected_by ? (
                     <p>
                       {task.redirected_by.full_name}
-                      {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && (
-                        <span className="ml-2 text-muted-foreground">
-                          • Проверяет: {task.current_reviewer.full_name}
-                        </span>
-                      )}
                     </p>
                   ) : null}
-                  {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && task.redirect_chain_employees && task.redirect_chain_employees.length > 0 && (
-                    <p className="text-sm mt-1">
-                      Проверяет: {task.current_reviewer.full_name}
-                    </p>
-                  )}
+                </div>
+              )}
+
+              {/* Проверяющий */}
+              {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && (
+                <div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                    <FileText className="w-4 h-4" />
+                    <span>Проверяет:</span>
+                  </div>
+                  <p>
+                    {task.current_reviewer.full_name}
+                  </p>
+                </div>
+              )}
+
+              {/* Согласующий */}
+              {task.status === 'send_for_approve' && task.current_approver && (
+                <div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Согласует:</span>
+                  </div>
+                  <p>
+                    {task.current_approver.full_name}
+                  </p>
                 </div>
               )}
             </div>
@@ -499,6 +578,59 @@ export default function TaskDetail() {
               </Button>
             )}
 
+            {/* Для задач согласования создания - только ссылка на страницу согласования */}
+            {task.task_type === 'task_approval' && task.status === 'in_progress' && isAssignedEmployee && (
+              <Button
+                asChild
+                className="w-full"
+                variant="default"
+              >
+                <Link to={`/tasks/${id}/creation-approval`} className="flex items-center justify-center w-full">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Посмотреть задачу
+                </Link>
+              </Button>
+            )}
+
+            {/* Кнопка отзыва для создателя задачи в статусе send_for_approve */}
+            {canRecall && (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={handleRecall}
+                disabled={recallTaskMutation.isPending}
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                {recallTaskMutation.isPending ? 'Отзыв...' : 'Отозвать задачу'}
+              </Button>
+            )}
+
+            {/* Кнопка редактирования для создателя задачи в статусе revision */}
+            {canEdit && (
+              <>
+                <Button
+                  asChild
+                  variant="default"
+                  className="w-full"
+                >
+                  <Link to={`/tasks/${id}/edit`} className="flex items-center justify-center w-full">
+                    <Edit className="w-4 h-4 mr-2" />
+                    Редактировать задачу
+                  </Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleDelete}
+                  disabled={deleteTaskMutation.isPending}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {deleteTaskMutation.isPending ? 'Удаление...' : 'Удалить задачу'}
+                </Button>
+              </>
+            )}
+
+            {/* Кнопка открытия мероприятия */}
             {task.card && (
               <Button asChild variant="outline" className="w-full">
                 <Link to={`/cards/${task.card}`} className="flex items-center justify-center w-full">

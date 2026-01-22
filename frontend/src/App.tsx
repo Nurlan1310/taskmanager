@@ -9,6 +9,7 @@ import Assignments from './pages/Assignments'
 import TaskDetail from './pages/TaskDetail'
 import ExecuteTask from './pages/ExecuteTask'
 import TaskReview from './pages/TaskReview'
+import TaskCreationApproval from './pages/TaskCreationApproval'
 import PlanApproval from './pages/PlanApproval'
 import Cards from './pages/Cards'
 import CardDetail from './pages/CardDetail'
@@ -16,6 +17,7 @@ import Archive from './pages/Archive'
 import Statistics from './pages/Statistics'
 import Calendar from './pages/Calendar'
 import CreateTask from './pages/CreateTask'
+import EditTask from './pages/EditTask'
 import CreateCard from './pages/CreateCard'
 import Employees from './pages/Employees'
 import Delegation from './pages/Delegation'
@@ -57,8 +59,10 @@ function App() {
           <Route path="assignments" element={<Assignments />} />
           <Route path="tasks/new" element={<CreateTask />} />
           <Route path="tasks/:id" element={<TaskDetail />} />
+          <Route path="tasks/:id/edit" element={<EditTask />} />
           <Route path="tasks/:id/execute" element={<ExecuteTask />} />
           <Route path="tasks/:id/review" element={<TaskReview />} />
+          <Route path="tasks/:id/creation-approval" element={<TaskCreationApproval />} />
           <Route path="tasks/:id/approve-plan" element={<PlanApproval />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="cards/:cardId/tasks/new" element={<CreateTask />} />

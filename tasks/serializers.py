@@ -114,17 +114,29 @@ class TaskSerializer(serializers.ModelSerializer):
     )
     # Нужно для фронта, чтобы быстро фильтровать по отделу
     assigned_department_id = serializers.IntegerField(source='assigned_department.id', read_only=True, allow_null=True)
+    
+    # Поля согласования создания
+    is_according_to_plan = serializers.BooleanField(required=False)
+    creation_approval_chain = serializers.ListField(
+        child=serializers.IntegerField(),
+        read_only=True,
+    )
+    current_approval_index = serializers.IntegerField(read_only=True, allow_null=True)
+    parent_task_id = serializers.IntegerField(source='parent_task.id', read_only=True, allow_null=True)
+    relation_type = serializers.CharField(read_only=True)
 
     class Meta:
         model = Task
         fields = [
             'id', 'title', 'description', 'status', 'status_display', 
             'task_type', 'task_type_display', 'priority', 'priority_display', 'is_urgent',
+            'is_according_to_plan', 'creation_approval_chain', 'current_approval_index',
+            'parent_task_id', 'relation_type',
             'created_at', 'due_date', 'created_by', 'created_by_name',
             'assigned_employee', 'assigned_employee_id', 'assigned_employee_name',
             'assigned_department', 'assigned_department_id', 'assigned_department_name',
             'recipients', 'recipients_ids', 'card', 'card_title',
-            'google_drive_link', 'review_comment', 'history', 'attachments', 'redirected_by', 'redirect_chain', 'redirect_chain_employees', 'current_reviewer'
+            'google_drive_link', 'review_comment', 'history', 'attachments', 'redirected_by', 'redirect_chain', 'redirect_chain_employees', 'current_reviewer', 'current_approver'
         ]
         read_only_fields = ['created_at']
 
@@ -166,6 +178,7 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
     
     current_reviewer = serializers.SerializerMethodField()
+    current_approver = serializers.SerializerMethodField()
     
     def get_current_reviewer(self, obj):
         """Возвращает текущего проверяющего для задачи в статусе sent_for_review или under_review"""
@@ -183,6 +196,22 @@ class TaskSerializer(serializers.ModelSerializer):
         
         if review_task and review_task.assigned_employee:
             return EmployeeSerializer(review_task.assigned_employee).data
+        return None
+    
+    def get_current_approver(self, obj):
+        """Возвращает текущего согласующего для задачи в статусе send_for_approve"""
+        if obj.status != 'send_for_approve':
+            return None
+        
+        # Ищем активную задачу на согласование создания для этой задачи
+        approval_task = Task.objects.filter(
+            parent_task=obj,
+            task_type="task_approval",
+            status__in=('new', 'in_progress')
+        ).select_related('assigned_employee').order_by("-created_at").first()
+        
+        if approval_task and approval_task.assigned_employee:
+            return EmployeeSerializer(approval_task.assigned_employee).data
         return None
 
     # Логика создания (сохранена полностью как у твоего друга)
@@ -320,7 +349,7 @@ class EventCardSerializer(serializers.ModelSerializer):
         """Количество задач на согласование пользователя"""
         user_tasks = self._get_user_tasks(obj)
         return user_tasks.filter(
-            task_type__in=['approval', 'review']
+            task_type__in=['approval', 'review', 'task_approval']
         ).exclude(status='done').count()
     
     def get_user_total_tasks(self, obj):

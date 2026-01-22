@@ -10,6 +10,7 @@ import { ArrowLeft, Save } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Employee } from '@/types/task'
 import EmployeeModal from '@/components/EmployeeModal'
+import { useAuthStore } from '@/store/authStore'
 
 interface TaskFormData {
   title: string
@@ -20,12 +21,15 @@ interface TaskFormData {
   recipients_ids: number[]
   file: File | null
   google_drive_link: string
+  is_according_to_plan: boolean
+  creation_deputy_id: number | null
 }
 
 export default function CreateTask() {
   const navigate = useNavigate()
   const { cardId } = useParams<{ cardId?: string }>()
   const queryClient = useQueryClient()
+  const { user } = useAuthStore()
   const [formData, setFormData] = useState<TaskFormData>({
     title: '',
     description: '',
@@ -35,11 +39,17 @@ export default function CreateTask() {
     recipients_ids: [],
     file: null,
     google_drive_link: '',
+    is_according_to_plan: true,
+    creation_deputy_id: null,
   })
 
   const [selectedRecipients, setSelectedRecipients] = useState<number[]>([])
   const [showRecipientModal, setShowRecipientModal] = useState(false)
   const [uploadedFileName, setUploadedFileName] = useState<string>('')
+  
+  // Определяем роль пользователя
+  const userRole = user?.employee?.role || ''
+  const needsDeputySelection = !formData.is_according_to_plan && (userRole === 'staff' || userRole === 'senior' || userRole === 'head')
 
   const { data: employees } = useQuery<Employee[]>({
     queryKey: ['employees'],
@@ -48,6 +58,9 @@ export default function CreateTask() {
       return Array.isArray(response.data) ? response.data : (response.data.results || [])
     },
   })
+  
+  // Получаем список заместителей для выбора
+  const deputies = employees?.filter(emp => emp.role === 'deputy') || []
 
   const { data: card } = useQuery({
     queryKey: ['card', cardId],
@@ -80,9 +93,11 @@ export default function CreateTask() {
         formData.append('description', data.description)
         formData.append('priority', data.priority)
         formData.append('due_date', dueDate)
+        formData.append('is_according_to_plan', data.is_according_to_plan.toString())
         if (cardId) formData.append('card', cardId)
         selectedRecipients.forEach(id => formData.append('recipients_ids', id.toString()))
         if (data.google_drive_link) formData.append('google_drive_link', data.google_drive_link)
+        if (data.creation_deputy_id) formData.append('creation_deputy_id', data.creation_deputy_id.toString())
         formData.append('file', data.file)
         
         return api.post('/tasks/', formData, {
@@ -97,9 +112,13 @@ export default function CreateTask() {
           description: data.description,
           priority: data.priority,
           due_date: dueDate,
+          is_according_to_plan: data.is_according_to_plan,
           card: cardId ? parseInt(cardId) : null,
           recipients_ids: selectedRecipients,
           google_drive_link: data.google_drive_link,
+        }
+        if (data.creation_deputy_id) {
+          payload.creation_deputy_id = data.creation_deputy_id
         }
         
         return api.post('/tasks/', payload)
@@ -110,7 +129,7 @@ export default function CreateTask() {
       if (cardId) {
         queryClient.invalidateQueries({ queryKey: ['card', cardId] })
       }
-      navigate(cardId ? `/cards/${cardId}` : '/tasks')
+      navigate('/assignments')
     },
     onError: (error: any) => {
       alert(error?.message || 'Ошибка при создании задачи')
@@ -122,10 +141,10 @@ export default function CreateTask() {
     if (card) {
       if (card.has_plan && !card.visible) {
         alert('Создание задач недоступно до утверждения плана мероприятия')
-        navigate(cardId ? `/cards/${cardId}` : '/tasks')
+        navigate(cardId ? `/cards/${cardId}` : '/assignments')
       } else if (!card.is_active) {
         alert('Создание задач недоступно: мероприятие еще не началось или уже завершено')
-        navigate(cardId ? `/cards/${cardId}` : '/tasks')
+        navigate(cardId ? `/cards/${cardId}` : '/assignments')
       }
     }
   }, [card, cardId, navigate])
@@ -153,6 +172,13 @@ export default function CreateTask() {
       alert('Выберите хотя бы одного адресата')
       return
     }
+    
+    // Проверяем выбор заместителя, если требуется
+    if (needsDeputySelection && !formData.creation_deputy_id) {
+      alert('Необходимо выбрать заместителя для согласования')
+      return
+    }
+    
     createTaskMutation.mutate({ ...formData, recipients_ids: selectedRecipients })
   }
   
@@ -262,6 +288,49 @@ export default function CreateTask() {
                 </Button>
               </div>
             </div>
+
+            <div>
+              <label className="text-sm font-medium mb-2 block">
+                Создание задачи
+              </label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={formData.is_according_to_plan ? 'default' : 'outline'}
+                  onClick={() => handleChange('is_according_to_plan', true)}
+                >
+                  Согласно плана
+                </Button>
+                <Button
+                  type="button"
+                  variant={!formData.is_according_to_plan ? 'default' : 'outline'}
+                  onClick={() => handleChange('is_according_to_plan', false)}
+                >
+                  Не согласно плана
+                </Button>
+              </div>
+            </div>
+
+            {needsDeputySelection && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Заместитель для согласования <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={formData.creation_deputy_id || ''}
+                  onChange={(e) => handleChange('creation_deputy_id', e.target.value ? parseInt(e.target.value) : null)}
+                  className="w-full px-3 py-2 border rounded-md"
+                  required
+                >
+                  <option value="">Выберите заместителя</option>
+                  {deputies.map((deputy) => (
+                    <option key={deputy.id} value={deputy.id}>
+                      {deputy.full_name_complete || deputy.full_name} {deputy.position && `(${deputy.position})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="text-sm font-medium mb-2 block">

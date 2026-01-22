@@ -49,8 +49,8 @@ function TaskCard({ task, isTodayColumn = false }: { task: Task; isTodayColumn?:
 
   // Определяем цвет обводки в зависимости от статуса задачи
   const getBorderColor = () => {
-    // Задачи типа review и approval имеют синюю обводку
-    if (task.task_type === 'review' || task.task_type === 'approval') {
+    // Задачи типа review, approval и task_approval имеют синюю обводку
+    if (task.task_type === 'review' || task.task_type === 'approval' || task.task_type === 'task_approval') {
       return 'border-blue-500'
     }
     
