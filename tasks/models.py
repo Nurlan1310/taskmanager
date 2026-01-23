@@ -19,6 +19,7 @@ class Category(models.Model):
 
 class Department(models.Model):
     name = models.CharField(max_length=255)
+    shortname = models.CharField(max_length=255, blank=True, null=True, verbose_name="Короткое название")
     priority = models.IntegerField(default=0, verbose_name="Приоритет", help_text="Чем меньше число, тем выше приоритет. Используется для сортировки отделов.")
 
     class Meta:

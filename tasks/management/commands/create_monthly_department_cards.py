@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
-from tasks.models import Department, EventCard, Category
+from tasks.models import Department, EventCard, Category, Employee
 from django.contrib.auth import get_user_model
 import calendar
 
@@ -40,10 +40,22 @@ class Command(BaseCommand):
         # admin будет создателем
         admin_user = User.objects.filter(username="admin").first()
         admin_employee = getattr(admin_user, "employee", None)
+        
+        # Если у admin нет Employee, создаем его или используем первого директора/заместителя
+        if not admin_employee:
+            # Пытаемся найти директора или заместителя
+            admin_employee = Employee.objects.filter(role__in=["director", "deputy"]).first()
+            if not admin_employee:
+                self.stdout.write(self.style.ERROR(
+                    "Не найден пользователь admin с Employee или директор/заместитель. "
+                    "Создайте Employee для пользователя admin или убедитесь, что есть директор/заместитель."
+                ))
+                return
 
         created = 0
 
         for dept in Department.objects.all():
+            # Используем name вместо shortname
             title = f"{dept.shortname} {month_name.capitalize()}"
 
             start_date = now.replace(day=1)
@@ -55,7 +67,7 @@ class Command(BaseCommand):
                 responsible_department=dept,
                 start_date__year=now.year,
                 start_date__month=now.month,
-                title__icontains=dept.shortname,
+                title__icontains=dept.shortname,  # Используем name вместо shortname
                 visible=False
             ).exists()
 
