@@ -29,8 +29,11 @@ export interface Task {
   title: string
   description: string
   status: 'new' | 'in_progress' | 'done' | 'under_review' | 'sent_for_review' | 'rejected' | 'pending' | 'revision' | 'send_for_approve'
+  status_display?: string
   task_type: 'regular' | 'approval' | 'review' | 'task_approval'
+  task_type_display?: string
   priority?: 'low' | 'normal' | 'high' | 'urgent'
+  priority_display?: string
   created_at: string
   due_date?: string
   created_by: Employee
