@@ -21,7 +21,7 @@ export default function Header() {
   const { query, setQuery } = useSearchStore()
   const navigate = useNavigate()
   const [searchValue, setSearchValue] = useState(query)
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
+  const { notifications, unreadCount, markAsRead } = useNotifications()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   const handleSearch = (e: React.FormEvent) => {

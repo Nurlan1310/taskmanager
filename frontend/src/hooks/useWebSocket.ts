@@ -30,7 +30,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const [isConnected, setIsConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectAttemptsRef = useRef(0)
-  const reconnectTimeoutRef = useRef<number | null>(null)
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   
   // Используем refs для callbacks, чтобы избежать пересоздания connect
   const onMessageRef = useRef(onMessage)
