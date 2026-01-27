@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { formatDateTimeInAstanaTime } from '@/lib/dateUtils'
+import { toast } from 'sonner'
 
 const statusLabels: Record<string, string> = {
   new: 'Новая',
@@ -96,6 +97,7 @@ export default function TaskDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task', id] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      toast.success('Задача принята в работу')
     },
   })
 
@@ -136,9 +138,12 @@ export default function TaskDetail() {
     mutationFn: async (employeeId: number) => {
       return api.post(`/tasks/${id}/redirect/`, { employee_id: employeeId })
     },
-    onSuccess: () => {
+    onSuccess: (_, employeeId) => {
+      const employee = availableEmployeesForRedirect.find(emp => emp.id === employeeId)
+      const employeeName = employee?.full_name || employee?.full_name_complete || 'сотруднику'
       queryClient.invalidateQueries({ queryKey: ['task', id] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      toast.success(`Задача перенаправлена ${employeeName}`)
       setShowRedirectModal(false)
       setSelectedRedirectEmployeeId(null)
     },
@@ -155,6 +160,7 @@ export default function TaskDetail() {
       queryClient.invalidateQueries({ queryKey: ['task', id] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Задача успешно отозвана')
     },
     onError: (error: any) => {
       alert(error?.response?.data?.error || 'Ошибка при отзыве задачи')
@@ -174,6 +180,7 @@ export default function TaskDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Задача успешно удалена')
       // Перенаправляем на список задач
       window.location.href = '/tasks'
     },
@@ -559,7 +566,7 @@ export default function TaskDetail() {
                 className="w-full"
                 variant="outline"
               >
-                <Link to={`/tasks/${id}/execute`}>
+                <Link to={`/tasks/${id}/execute`} className="flex items-center justify-center">
                   <CheckCircle2 className="w-4 h-4 mr-2" />
                   Редактировать выполнение
                 </Link>
@@ -656,7 +663,12 @@ export default function TaskDetail() {
 
       {/* Модальное окно истории действий */}
       {task.history && task.history.length > 0 && (
-        <Dialog open={showHistoryModal} onOpenChange={setShowHistoryModal}>
+        <Dialog 
+          open={showHistoryModal} 
+          onOpenChange={setShowHistoryModal}
+          centered
+          maxWidth="xl"
+        >
           <DialogContent onClose={() => setShowHistoryModal(false)}>
             <div className="max-w-2xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
@@ -694,7 +706,12 @@ export default function TaskDetail() {
       )}
 
       {/* Модальное окно перенаправления задачи */}
-      <Dialog open={showRedirectModal} onOpenChange={setShowRedirectModal}>
+      <Dialog 
+        open={showRedirectModal} 
+        onOpenChange={setShowRedirectModal}
+        centered
+        maxWidth="md"
+      >
         <DialogContent onClose={() => {
           setShowRedirectModal(false)
           setSelectedRedirectEmployeeId(null)

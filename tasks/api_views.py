@@ -8,12 +8,12 @@ from django.db.models import Q, Count
 from django.utils import timezone
 from datetime import timedelta, datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
-from .models import Task, EventCard, Employee, Category, Department, CardApproverOrder, TaskHistory
+from .models import Task, EventCard, Employee, Category, Department, CardApproverOrder, TaskHistory, Notification
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from .serializers import (
     TaskSerializer, EventCardSerializer, EventCardDetailSerializer,
-    EmployeeSerializer, UserSerializer, CategorySerializer, DepartmentSerializer
+    EmployeeSerializer, UserSerializer, CategorySerializer, DepartmentSerializer, NotificationSerializer
 )
 
 
@@ -563,8 +563,8 @@ class TaskViewSet(viewsets.ModelViewSet):
            - staff -> head отдела
            - senior/head/deputy/director -> без согласования
         2. Не согласно плана:
-           - staff -> head отдела, затем выбранный deputy
-           - senior/head -> только выбранный deputy
+           - staff -> head отдела, затем выбранный deputy/director
+           - senior/head -> только выбранный deputy/director
            - deputy/director -> без согласования
         
         Returns:
@@ -588,24 +588,28 @@ class TaskViewSet(viewsets.ModelViewSet):
                 approvers = [head]
         else:
             # Не согласно плана
-            # Получаем выбранного заместителя
-            deputy = None
+            # Получаем выбранного заместителя или директора
+            deputy_or_director = None
             if deputy_id:
                 try:
-                    deputy = Employee.objects.get(id=deputy_id, role='deputy')
+                    # Может быть либо заместитель, либо директор
+                    deputy_or_director = Employee.objects.get(
+                        id=deputy_id, 
+                        role__in=['deputy', 'director']
+                    )
                 except Employee.DoesNotExist:
                     pass
             
             if creator_role == 'staff':
-                # Обычный сотрудник: head, затем deputy
+                # Обычный сотрудник: head, затем deputy/director
                 if head:
                     approvers.append(head)
-                if deputy:
-                    approvers.append(deputy)
+                if deputy_or_director:
+                    approvers.append(deputy_or_director)
             elif creator_role in ['senior', 'head']:
-                # Старший сотрудник или руководитель: только deputy
-                if deputy:
-                    approvers.append(deputy)
+                # Старший сотрудник или руководитель: только deputy/director
+                if deputy_or_director:
+                    approvers.append(deputy_or_director)
             # deputy и director создают без согласования
         
         return approvers
@@ -743,6 +747,23 @@ class TaskViewSet(viewsets.ModelViewSet):
                         comment=f'Задача создана и назначена {recipient.full_name}'
                     )
                     
+                    # Если нет согласующих, отправляем уведомление исполнителю
+                    if not approvers and task.assigned_employee:
+                        try:
+                            from .notifications import send_task_notification
+                            creator_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+                            send_task_notification(
+                                user=task.assigned_employee.user,
+                                title="Новая задача",
+                                body=f"{creator_name} назначил(-а) вам задачу: {task.title}",
+                                task_id=task.id,
+                                notification_type='task.created'
+                            )
+                        except Exception as e:
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.error(f"Ошибка отправки уведомления исполнителю: {e}")
+                    
                     # Создаем задачи-согласования, если нужно
                     if approvers:
                         first_approver = approvers[0]
@@ -769,6 +790,22 @@ class TaskViewSet(viewsets.ModelViewSet):
                             action='created',
                             comment=f'Задача согласования создания создана'
                         )
+                        
+                        # Отправляем уведомление первому согласующему
+                        try:
+                            from .notifications import send_task_notification
+                            creator_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+                            send_task_notification(
+                                user=first_approver.user,
+                                title="Требуется согласование",
+                                body=f"{creator_name} отправил(-а) поручение «{task.title}» на согласование",
+                                task_id=approval_task.id,
+                                notification_type='task.approval_required'
+                            )
+                        except Exception as e:
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.error(f"Ошибка отправки уведомления согласующему: {e}")
                     
                     # Создаем вложения для каждой задачи
                     if file_content and file_name:
@@ -867,7 +904,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task_type='task_approval',
                 status='new',
                 title=f"Согласование создания задачи: {task.title}",
-                description=f"Требуется согласование создания задачи:\n\n{task.title}\n\n{task.description or ''}",
+                description=f"Требуется согласование создания задачи:\n{task.title}",
                 created_by=employee,
                 assigned_employee=first_approver,
                 parent_task=task,
@@ -887,6 +924,48 @@ class TaskViewSet(viewsets.ModelViewSet):
                 action='created',
                 comment=f'Задача согласования создания создана'
             )
+            
+            # Отправляем уведомление первому согласующему
+            try:
+                from .notifications import send_task_notification
+                creator_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+                send_task_notification(
+                    user=first_approver.user,
+                    title="Требуется согласование",
+                    body=f"{creator_name} отправил(-а) поручение «{task.title}» на согласование",
+                    task_id=approval_task.id,
+                    notification_type='task.approval_required'
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Ошибка отправки уведомления согласующему: {e}")
+        else:
+            # Если нет согласующих, создаем историю и отправляем уведомление исполнителю
+            if task.assigned_employee:
+                # Создаем запись в истории
+                TaskHistory.objects.create(
+                    task=task,
+                    employee=employee,
+                    action='created',
+                    comment=f'Задача создана и назначена {task.assigned_employee.full_name}'
+                )
+                
+                # Отправляем уведомление исполнителю
+                try:
+                    from .notifications import send_task_notification
+                    creator_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+                    send_task_notification(
+                        user=task.assigned_employee.user,
+                        title="Новая задача",
+                        body=f"{creator_name} назначил(-а) вам задачу: {task.title}",
+                        task_id=task.id,
+                        notification_type='task.created'
+                    )
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Ошибка отправки уведомления исполнителю: {e}")
         
         # Создаем вложения (файл и/или ссылка)
         from .models import TaskAttachment
@@ -1241,7 +1320,7 @@ class EventCardViewSet(viewsets.ModelViewSet):
                     card.current_approver_index = 0
                     card.save(update_fields=["current_approver_index"])
                     
-                    Task.objects.create(
+                    approval_task = Task.objects.create(
                         title=f"Согласовать план мероприятия «{card.title}»",
                         description="Необходимо рассмотреть загруженный план и утвердить или отклонить.",
                         card=card,
@@ -1250,6 +1329,22 @@ class EventCardViewSet(viewsets.ModelViewSet):
                         task_type="approval",
                         priority="urgent",
                     )
+                    
+                    # Отправляем уведомление согласующему
+                    try:
+                        from .notifications import send_task_notification
+                        creator_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+                        send_task_notification(
+                            user=first_approver.user,
+                            title="Требуется согласование плана",
+                            body=f"{creator_name} отправил(-а) план мероприятия «{card.title}» на согласование",
+                            task_id=approval_task.id,
+                            notification_type='task.plan_approval_required'
+                        )
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Ошибка отправки уведомления согласующему плана: {e}")
                 elif card.final_approver:
                     # Нет согласующих → сразу финальному утверждающему
                     existing_task = Task.objects.filter(
@@ -1259,7 +1354,7 @@ class EventCardViewSet(viewsets.ModelViewSet):
                     ).exists()
                     
                     if not existing_task:
-                        Task.objects.create(
+                        approval_task = Task.objects.create(
                             title=f"Утвердить план мероприятия «{card.title}»",
                             description="План направлен напрямую утверждающему (без промежуточных согласующих).",
                             card=card,
@@ -1268,6 +1363,22 @@ class EventCardViewSet(viewsets.ModelViewSet):
                             task_type="approval",
                             priority="normal",
                         )
+                        
+                        # Отправляем уведомление финальному утверждающему
+                        try:
+                            from .notifications import send_task_notification
+                            creator_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+                            send_task_notification(
+                                user=card.final_approver.user,
+                                title="Требуется согласование плана",
+                                body=f"{creator_name} отправил(-а) план мероприятия «{card.title}» на согласование",
+                                task_id=approval_task.id,
+                                notification_type='task.plan_approval_required'
+                            )
+                        except Exception as e:
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.error(f"Ошибка отправки уведомления финальному утверждающему плана: {e}")
                     
                     card.current_approver_index = 0
                     card.save(update_fields=["current_approver_index"])
@@ -1361,6 +1472,23 @@ def take_task_view(request, task_id):
                     action="under_review",
                     comment="На проверке"
                 )
+                
+                # Отправляем WebSocket уведомление исполнителю исходной задачи
+                if base_task.assigned_employee and base_task.assigned_employee.user != request.user:
+                    try:
+                        from .notifications import send_task_notification
+                        reviewer_name = effective_employee.full_name if effective_employee.full_name else effective_employee.user.username
+                        send_task_notification(
+                            user=base_task.assigned_employee.user,
+                            title="Исполнение принято на проверку",
+                            body=f"{employee.full_name} принял(-а) исполнение вашей задачи {base_task.title} на проверку",
+                            task_id=base_task.id,
+                            notification_type='task.review_taken'
+                        )
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Ошибка отправки уведомления при взятии задачи на проверку: {e}")
         
         # Если это задача согласования создания (task_approval), обновляем статус основной задачи
         if task.task_type == 'task_approval':
@@ -1555,6 +1683,22 @@ def execute_task_view(request, task_id):
                 action="created",
                 comment=f"Создана задача для проверки выполнения. Проверяющий: {first_reviewer.full_name}."
             )
+            
+            # Отправляем уведомление проверяющему
+            try:
+                from .notifications import send_task_notification
+                executor_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+                send_task_notification(
+                    user=first_reviewer.user,
+                    title="Исполнение на проверке",
+                    body=f"{executor_name} отправил(-а) исполнение задачи: «{task.title}» на проверку",
+                    task_id=review_task.id,
+                    notification_type='task.execution_sent_for_review'
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Ошибка отправки уведомления проверяющему: {e}")
         else:
             # Если review ещё не завершена — просто обновляем её
             existing_review.description = (
@@ -1674,6 +1818,22 @@ def redirect_task_view(request, task_id):
             action='redirected',
             comment=f'Задача перенаправлена от {employee.full_name} к {new_employee.full_name}'
         )
+        
+        # Отправляем уведомление новому исполнителю
+        try:
+            from .notifications import send_task_notification
+            redirector_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+            send_task_notification(
+                user=new_employee.user,
+                title="Задача перенаправлена",
+                body=f"{redirector_name} перенаправил(-а) вам задачу «{task.title}» на исполнение",
+                task_id=task.id,
+                notification_type='task.redirected'
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Ошибка отправки уведомления при перенаправлении задачи: {e}")
     
     # Перезагружаем задачу с правильными связями для сериализации
     task.refresh_from_db()
@@ -1814,6 +1974,24 @@ def approve_plan_view(request, task_id):
             card.save(update_fields=[
                 "plan_status", "plan_approved_at", "visible", "is_fully_approved", "current_approver_index"
             ])
+            
+            # Отправляем уведомление автору карточки об утверждении
+            if card.created_by and card.created_by.user:
+                try:
+                    from .notifications import send_task_notification
+                    approver_name = effective_employee.full_name if effective_employee.full_name else effective_employee.user.get_full_name() or effective_employee.user.username
+                    send_task_notification(
+                        user=card.created_by.user,
+                        title="План мероприятия утвержден",
+                        body=f"{approver_name} утвердил(а) ваш план мероприятия «{card.title}»",
+                        task_id=task.id,
+                        notification_type='task.plan_approved',
+                        url=f"/cards/{card.id}"
+                    )
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Ошибка отправки уведомления автору об утверждении плана: {e}")
         else:
             # Проверяем, есть ли следующий согласующий
             current_index = current_order.order
@@ -1834,15 +2012,31 @@ def approve_plan_view(request, task_id):
                 ).exists()
                 
                 if not existing_task:
-                    Task.objects.create(
+                    next_task = Task.objects.create(
                         title=f"Согласовать план мероприятия «{card.title}»",
                         description="План прошёл предыдущего согласующего.",
                         card=card,
                         assigned_employee=next_emp,
-                        created_by=effective_employee,
+                        created_by=card.created_by,
                         task_type="approval",
                         priority="normal",
                     )
+                    
+                    # Отправляем уведомление следующему согласующему
+                    try:
+                        from .notifications import send_task_notification
+                        sender_name = card.created_by.full_name if card.created_by.full_name else card.created_by.user.get_full_name() or card.created_by.user.username
+                        send_task_notification(
+                            user=next_emp.user,
+                            title="Требуется согласование плана",
+                            body=f"{sender_name} отправил(а) план мероприятия «{card.title}» на согласование",
+                            task_id=next_task.id,
+                            notification_type='task.plan_approval_required'
+                        )
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Ошибка отправки уведомления следующему согласующему плана: {e}")
             else:
                 # Все согласующие завершили. Проверяем, есть ли финальный утверждающий
                 if card.final_approver:
@@ -1859,15 +2053,31 @@ def approve_plan_view(request, task_id):
                     ).exists()
                     
                     if not existing_task:
-                        Task.objects.create(
+                        final_task = Task.objects.create(
                             title=f"Утвердить план мероприятия «{card.title}»",
                             description="План прошёл все согласования и направлен на утверждение.",
                             card=card,
                             assigned_employee=card.final_approver,
-                            created_by=effective_employee,
+                            created_by=card.created_by,
                             task_type="approval",
                             priority="urgent",
                         )
+                        
+                        # Отправляем уведомление финальному утверждающему
+                        try:
+                            from .notifications import send_task_notification
+                            sender_name = card.created_by.full_name if card.created_by.full_name else card.created_by.user.get_full_name() or card.created_by.user.username
+                            send_task_notification(
+                                user=card.final_approver.user,
+                                title="Требуется согласование плана",
+                                body=f"{sender_name} отправил(а) план мероприятия «{card.title}» на утверждение",
+                                task_id=final_task.id,
+                                notification_type='task.plan_approval_required'
+                            )
+                        except Exception as e:
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.error(f"Ошибка отправки уведомления финальному утверждающему плана: {e}")
                     # НЕ утверждаем план здесь - только финальный утверждающий может это сделать
                 else:
                     # Если финального утверждающего нет, завершаем полностью
@@ -1879,6 +2089,24 @@ def approve_plan_view(request, task_id):
                     card.save(update_fields=[
                         "plan_status", "plan_approved_at", "visible", "is_fully_approved", "current_approver_index"
                     ])
+                    
+                    # Отправляем уведомление автору карточки об утверждении
+                    if card.created_by and card.created_by.user:
+                        try:
+                            from .notifications import send_task_notification
+                            approver_name = effective_employee.full_name if effective_employee.full_name else effective_employee.user.get_full_name() or effective_employee.user.username
+                            send_task_notification(
+                                user=card.created_by.user,
+                                title="План мероприятия утвержден",
+                                body=f"{approver_name} утвердил(а) ваш план мероприятия «{card.title}»",
+                                task_id=task.id,
+                                notification_type='task.plan_approved',
+                                url=f"/cards/{card.id}"
+                            )
+                        except Exception as e:
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.error(f"Ошибка отправки уведомления автору об утверждении плана: {e}")
     
     return Response({
         'task': TaskSerializer(task).data,
@@ -1930,7 +2158,7 @@ def reject_plan_view(request, task_id):
     
     with transaction.atomic():
         # Завершаем текущую задачу
-        task.status = "rejected"
+        task.status = "done"
         task.save(update_fields=["status"])
         
         TaskHistory.objects.create(
@@ -1950,6 +2178,24 @@ def reject_plan_view(request, task_id):
             card.plan_file = corrected_plan_file
         
         card.save(update_fields=["plan_status", "plan_rejected_reason", "visible", "plan_file"])
+        
+        # Отправляем уведомление автору карточки об отклонении
+        if card.created_by and card.created_by.user:
+            try:
+                from .notifications import send_task_notification
+                rejector_name = effective_employee.full_name if effective_employee.full_name else effective_employee.user.get_full_name() or effective_employee.user.username
+                send_task_notification(
+                    user=card.created_by.user,
+                    title="План мероприятия отклонен",
+                    body=f"{rejector_name} отклонил(а) ваш план мероприятия «{card.title}»",
+                    task_id=task.id,
+                    notification_type='task.plan_rejected',
+                    url=f"/cards/{card.id}"
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Ошибка отправки уведомления автору об отклонении плана: {e}")
     
     return Response({
         'task': TaskSerializer(task).data,
@@ -2039,7 +2285,7 @@ def upload_corrected_plan_view(request, card_id):
             first_approver = approver_orders.first().employee
             card.current_approver_index = 0
             
-            Task.objects.create(
+            approval_task = Task.objects.create(
                 title=f"Согласовать план мероприятия «{card.title}»",
                 description="Необходимо рассмотреть исправленный план и утвердить или отклонить.",
                 card=card,
@@ -2048,9 +2294,26 @@ def upload_corrected_plan_view(request, card_id):
                 task_type="approval",
                 priority="urgent",
             )
+            
+            # Отправляем уведомление первому согласующему
+            try:
+                from .notifications import send_task_notification
+                sender_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+                send_task_notification(
+                    user=first_approver.user,
+                    title="Требуется согласование плана",
+                    body=f"{sender_name} отправил(-а) план мероприятия «{card.title}» на согласование",
+                    task_id=approval_task.id,
+                    notification_type='task.plan_approval_required',
+                    url=f"/cards/{card.id}"
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Ошибка отправки уведомления первому согласующему при загрузке исправленного плана: {e}")
         elif card.final_approver:
             # Нет согласующих → сразу финальному утверждающему
-            Task.objects.create(
+            approval_task = Task.objects.create(
                 title=f"Утвердить план мероприятия «{card.title}»",
                 description="Необходимо рассмотреть исправленный план и утвердить или отклонить.",
                 card=card,
@@ -2059,6 +2322,23 @@ def upload_corrected_plan_view(request, card_id):
                 task_type="approval",
                 priority="urgent",
             )
+            
+            # Отправляем уведомление финальному утверждающему
+            try:
+                from .notifications import send_task_notification
+                sender_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+                send_task_notification(
+                    user=card.final_approver.user,
+                    title="Требуется согласование плана",
+                    body=f"{sender_name} отправил(-а) план мероприятия «{card.title}» на утверждение",
+                    task_id=approval_task.id,
+                    notification_type='task.plan_approval_required',
+                    url=f"/cards/{card.id}"
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Ошибка отправки уведомления финальному утверждающему при загрузке исправленного плана: {e}")
         
         card.save(update_fields=['plan_file', 'plan_status', 'plan_submitted_at', 'plan_rejected_reason', 'visible', 'current_approver_index'])
     
@@ -2652,6 +2932,22 @@ def approve_creation_view(request, task_id):
                 action='created',
                 comment=f'Задача согласования создания создана'
             )
+            
+            # Отправляем уведомление следующему согласующему
+            try:
+                from .notifications import send_task_notification
+                creator_name = main_task.created_by.full_name if main_task.created_by.full_name else main_task.created_by.user.get_full_name() or main_task.created_by.user.username
+                send_task_notification(
+                    user=next_approver.user,
+                    title="Требуется согласование",
+                    body=f"{creator_name} отправил(-а) вам поручение «{main_task.title}» на согласование",
+                    task_id=next_approval_task.id,
+                    notification_type='task.approval_required'
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Ошибка отправки уведомления следующему согласующему: {e}")
         else:
             # Согласование завершено
             main_task.status = 'new'
@@ -2661,9 +2957,25 @@ def approve_creation_view(request, task_id):
             TaskHistory.objects.create(
                 task=main_task,
                 employee=effective_employee,
-                action='approved',
+                action='created',
                 comment='Создание задачи согласовано'
             )
+            
+            # Отправляем уведомление автору задачи о завершении согласования
+            if main_task.created_by and main_task.created_by.user:
+                try:
+                    from .notifications import send_task_notification
+                    send_task_notification(
+                        user=main_task.created_by.user,
+                        title="Поручение согласовано",
+                        body=f"Создание вашего поручения «{main_task.title}» согласовано",
+                        task_id=main_task.id,
+                        notification_type='task.approved'
+                    )
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Ошибка отправки уведомления автору о согласовании: {e}")
             
             # Закрываем все незавершенные задачи-согласования для этой задачи
             Task.objects.filter(
@@ -2759,6 +3071,45 @@ def recall_task_view(request, task_id):
         'message': 'Задача отозвана и переведена в статус "На пересмотрении"',
         'task': TaskSerializer(task, context={'request': request}).data
     })
+
+
+# =========================================================
+# API для уведомлений
+# =========================================================
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def notifications_list_view(request):
+    """Получение списка уведомлений текущего пользователя"""
+    notifications = Notification.objects.filter(user=request.user).order_by('-created_at')
+    serializer = NotificationSerializer(notifications, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def notification_mark_read_view(request, notification_id):
+    """Отметить уведомление как прочитанное"""
+    notification = get_object_or_404(Notification, id=notification_id, user=request.user)
+    notification.is_read = True
+    notification.save(update_fields=['is_read'])
+    return Response({'success': True})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def notifications_mark_all_read_view(request):
+    """Отметить все уведомления как прочитанные"""
+    Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+    return Response({'success': True})
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def notifications_delete_read_view(request):
+    """Удалить все прочитанные уведомления"""
+    deleted_count = Notification.objects.filter(user=request.user, is_read=True).delete()[0]
+    return Response({'success': True, 'deleted_count': deleted_count})
 
 
 @api_view(['GET'])
@@ -2871,6 +3222,23 @@ def reject_creation_view(request, task_id):
             action='rejected',
             comment=f'Создание задачи отклонено: {comment}'
         )
+        
+        # Отправляем уведомление автору задачи об отклонении
+        if main_task.created_by and main_task.created_by.user:
+            try:
+                from .notifications import send_task_notification
+                rejector_name = effective_employee.full_name if effective_employee.full_name else effective_employee.user.get_full_name() or effective_employee.user.username
+                send_task_notification(
+                    user=main_task.created_by.user,
+                    title="Создание поручения отклонено",
+                    body=f"{rejector_name} отклонил(-а) создание вашего поручения «{main_task.title}»",
+                    task_id=main_task.id,
+                    notification_type='task.creation_rejected'
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Ошибка отправки уведомления автору об отклонении: {e}")
         
         # Закрываем все незавершенные задачи-согласования для этой задачи
         Task.objects.filter(

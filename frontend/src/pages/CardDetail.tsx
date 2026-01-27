@@ -14,6 +14,7 @@ import { useState } from 'react'
 import { TaskStatus, Employee } from '@/types/task'
 import { Select } from '@/components/ui/select'
 import { useAuthStore } from '@/store/authStore'
+import { toast } from 'sonner'
 
 interface EventCard {
   id: number
@@ -23,9 +24,11 @@ interface EventCard {
   end_date?: string
   created_by: {
     id: number
+    full_name?: string
     user: {
       first_name: string
       last_name: string
+      username?: string
     }
   }
   responsible_department?: {
@@ -195,6 +198,7 @@ export default function CardDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['card', id] })
       setShowEditDialog(false)
+      toast.success('Карточка мероприятия успешно изменена')
     },
     onError: (error: any) => {
       console.error('Ошибка при обновлении карточки:', error)
@@ -471,24 +475,32 @@ export default function CardDetail() {
           <CardContent>
             <div className="space-y-3">
               {/* Кнопка "Создать задачу" */}
-              <Button 
-                asChild={(card.has_plan ? card.visible : true) && card.is_active}
-                disabled={(card.has_plan && !card.visible) || !card.is_active}
-                className="w-full"
-                variant="default"
-              >
-                {(card.has_plan && !card.visible) || !card.is_active ? (
-                  <span className="flex items-center">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Создать задачу
-                  </span>
-                ) : (
-                  <Link to={`/cards/${id}/tasks/new`} className="flex items-center">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Создать задачу
-                  </Link>
+              <div className="relative group">
+                <Button 
+                  asChild={(card.has_plan ? card.visible : true) && card.is_active}
+                  disabled={(card.has_plan && !card.visible) || !card.is_active}
+                  className="w-full"
+                  variant="default"
+                >
+                  {(card.has_plan && !card.visible) || !card.is_active ? (
+                    <span className="flex items-center">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Создать задачу
+                    </span>
+                  ) : (
+                    <Link to={`/cards/${id}/tasks/new`} className="flex items-center">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Создать задачу
+                    </Link>
+                  )}
+                </Button>
+                {((card.has_plan && !card.visible) || !card.is_active) && (
+                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                    Создание задач недоступно
+                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                  </div>
                 )}
-              </Button>
+              </div>
               
               {/* Кнопка "Редактировать" (только для создателя) */}
               {isCreator && (
@@ -716,7 +728,13 @@ export default function CardDetail() {
                   }
 
                   // Фильтр по статусу
-                  if (statusFilter !== 'all' && task.status !== statusFilter) {
+                  if (statusFilter === 'all') {
+                    // Активные: новые, в работе, на проверке, отправлена на проверку
+                    const activeStatuses: TaskStatus[] = ['new', 'in_progress', 'under_review', 'sent_for_review']
+                    if (!activeStatuses.includes(task.status)) {
+                      return false
+                    }
+                  } else if (task.status !== statusFilter) {
                     return false
                   }
                   // Фильтр по типу
@@ -842,7 +860,7 @@ export default function CardDetail() {
                 </Button>
                 {card.has_plan && !card.visible && (
                   <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                    Создание задач недоступно до утверждения плана
+                    Создание задач недоступно
                     <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
                   </div>
                 )}
@@ -854,7 +872,7 @@ export default function CardDetail() {
 
       {/* Модальное окно с таймлайном согласования */}
       {card.has_plan && (
-        <Dialog open={showApprovalTimeline} onOpenChange={setShowApprovalTimeline}>
+        <Dialog open={showApprovalTimeline} onOpenChange={setShowApprovalTimeline} centered maxWidth="2xl">
           <DialogContent onClose={() => setShowApprovalTimeline(false)}>
             <DialogHeader>
               <DialogTitle>Процесс согласования плана</DialogTitle>
@@ -1031,7 +1049,10 @@ export default function CardDetail() {
                           }
 
                           const label = step.type === 'upload' 
-                            ? 'Загрузка плана'
+                            ? (card.created_by?.full_name || 
+                               (card.created_by?.user?.first_name && card.created_by?.user?.last_name 
+                                ? `${card.created_by.user.first_name} ${card.created_by.user.last_name}`
+                                : card.created_by?.user?.username || 'Автор карточки'))
                             : step.type === 'approver'
                             ? step.approver.full_name
                             : step.approver.full_name
@@ -1152,7 +1173,7 @@ export default function CardDetail() {
       )}
       
       {/* Модальное окно редактирования карточки */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog} centered maxWidth="2xl">
         <DialogContent onClose={() => setShowEditDialog(false)}>
           <DialogHeader>
             <DialogTitle>Редактировать мероприятие</DialogTitle>
@@ -1182,7 +1203,7 @@ export default function CardDetail() {
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="edit-end-date">Дата окончания (опционально)</Label>
+                <Label htmlFor="edit-end-date">Дата окончания</Label>
                 <Input
                   id="edit-end-date"
                   type="date"

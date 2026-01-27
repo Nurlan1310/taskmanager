@@ -4,7 +4,7 @@ from django.contrib.auth import views as auth_views
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import TemplateView
-from django.views.static import serve
+# Убрали serve - не работает с ASGI, используем WhiteNoise для статики
 
 urlpatterns = [
     # 1. Админка (общая)
@@ -33,12 +33,13 @@ urlpatterns = [
     # ⛔️ ФРОНТЕНД ДРУГА (НЕ ТРОГАЕМ)
     # ==========================================================
     
-    # Раздача статики фронтенда (JS/CSS из папки assets)
-    re_path(r'^assets/.*$', serve, {'document_root': settings.BASE_DIR / 'frontend/dist/assets'}),
+    # Раздача статики фронтенда (JS/CSS из папки assets) - через WhiteNoise
+    # WhiteNoise автоматически обрабатывает статику из STATIC_ROOT
     
     # React Router (перехватывает все остальные запросы и отдает index.html)
     # Это обеспечивает работу его дизайна сайта.
-    re_path(r'^(?!api|admin|accounts|static|media|assets).*$', 
+    # Исключаем ws для WebSocket соединений
+    re_path(r'^(?!api|admin|accounts|static|media|assets|ws).*$', 
             TemplateView.as_view(template_name='index.html')),
 ]
 

@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ArrowLeft, Save } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Task } from '@/types/task'
+import { toast } from 'sonner'
 
 interface TaskFormData {
   title: string
@@ -90,6 +91,7 @@ export default function EditTask() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task', id] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      toast.success('Задача успешно отредактирована')
       navigate(`/tasks/${id}`)
     },
     onError: (error: any) => {

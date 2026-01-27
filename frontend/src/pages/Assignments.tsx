@@ -336,10 +336,15 @@ export default function Assignments() {
       )}
 
       {/* Модальное окно выбора мероприятия */}
-      <Dialog open={showCardModal} onOpenChange={(open) => {
-        setShowCardModal(open)
-        if (!open) setCardSearchQuery('')
-      }}>
+      <Dialog 
+        open={showCardModal} 
+        onOpenChange={(open) => {
+          setShowCardModal(open)
+          if (!open) setCardSearchQuery('')
+        }}
+        centered
+        maxWidth="xl"
+      >
         <DialogContent onClose={() => {
           setShowCardModal(false)
           setCardSearchQuery('')

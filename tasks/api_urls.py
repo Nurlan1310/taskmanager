@@ -35,6 +35,11 @@ urlpatterns = [
     path('cards/<int:card_id>/approvers/', api_views.card_approvers_view, name='api-card-approvers'),
     path('cards/<int:card_id>/upload-corrected-plan/', api_views.upload_corrected_plan_view, name='api-upload-corrected-plan'),
     path('statistics/', api_views.statistics_view, name='api-statistics'),
+    # Уведомления - специфичные маршруты должны идти перед общими
+    path('notifications/mark-all-read/', api_views.notifications_mark_all_read_view, name='api-notifications-mark-all-read'),
+    path('notifications/delete-read/', api_views.notifications_delete_read_view, name='api-notifications-delete-read'),
+    path('notifications/<int:notification_id>/read/', api_views.notification_mark_read_view, name='api-notification-mark-read'),
+    path('notifications/', api_views.notifications_list_view, name='api-notifications-list'),
     path('', include(router.urls)),
 ]
 

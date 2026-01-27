@@ -27,7 +27,7 @@ from .serializers import (
     EmployeeSerializer
 )
 
-from .signals import send_task_notification
+from .notifications import send_task_notification
 
 # =====================================================
 # 📋 ГЛАВНЫЙ СПИСОК ЗАДАЧ (Умная фильтрация и Контроль)
@@ -167,7 +167,29 @@ class TaskCommentsApi(APIView):
                 author = request.user.employee
             except:
                 return Response({"error": "Нужен профиль"}, status=400)
-            serializer.save(task=task, author=author)
+            comment = serializer.save(task=task, author=author)
+            
+            # Отправляем уведомление получателю комментария
+            recipient_user = None
+            if task.assigned_employee and author != task.assigned_employee:
+                recipient_user = task.assigned_employee.user
+            elif task.created_by and author != task.created_by:
+                recipient_user = task.created_by.user
+            
+            if recipient_user:
+                try:
+                    send_task_notification(
+                        user=recipient_user,
+                        title="Новый комментарий",
+                        body=f"{author.full_name}: {comment.text[:50]}...",
+                        task_id=task.id,
+                        notification_type='task.comment_added'
+                    )
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Ошибка отправки уведомления о комментарии: {e}")
+            
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

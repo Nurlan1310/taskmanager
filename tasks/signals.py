@@ -1,14 +1,14 @@
 import os
 import logging
 import firebase_admin
-from firebase_admin import credentials, messaging
+from firebase_admin import credentials
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth.models import User
 from django.conf import settings
 
 # Импорт твоих моделей
-from .models import Employee, Task, TaskHistory, Notification, FCMDevice, TaskComment
+from .models import Employee, Task, TaskHistory
 
 logger = logging.getLogger(__name__)
 
@@ -57,106 +57,60 @@ def update_card_progress(sender, instance, **kwargs):
 # ==========================================
 # 3. ИСТОРИЯ И ИМЕННЫЕ ПУШИ ДЛЯ ЗАДАЧ
 # ==========================================
-@receiver(post_save, sender=Task)
-def task_post_save_handler(sender, instance, created, **kwargs):
-    if kwargs.get('raw', False):
-        return
+# @receiver(post_save, sender=Task)
+# def task_post_save_handler(sender, instance, created, **kwargs):
+#     if kwargs.get('raw', False):
+#         return
 
-    # --- А. ИСТОРИЯ (ФИО автора действия) ---
-    if created and instance.created_by_id:
-        try:
-            TaskHistory.objects.create(
-                task_id=instance.id, 
-                employee_id=instance.created_by_id, 
-                action="created"
-            )
-        except Exception as e:
-            logger.error(f"Ошибка создания истории: {e}")
+#     # --- А. ИСТОРИЯ (ФИО автора действия) ---
+#     if created and instance.created_by_id:
+#         try:
+#             TaskHistory.objects.create(
+#                 task_id=instance.id, 
+#                 employee_id=instance.created_by_id, 
+#                 action="created"
+#             )
+#         except Exception as e:
+#             logger.error(f"Ошибка создания истории: {e}")
 
-    # --- Б. ИМЕННОЙ ПУШ ПРИ СОЗДАНИИ ---
-    if created and instance.assigned_employee:
-        # Получаем ФИО создателя
-        try:
-            creator_name = instance.created_by.full_name if instance.created_by else "Система"
-        except Exception:
-            creator_name = "Система"
-
-        user_to_notify = instance.assigned_employee.user
-        send_task_notification(
-            user=user_to_notify,
-            title="Новая задача",
-            # Формат: "Алихан Смаилов назначил вам задачу: Название"
-            body=f"{creator_name} назначил(а) вам задачу: {instance.title}",
-            task_id=instance.id
-        )
-
-
-# ==========================================
-# 4. ИМЕННЫЕ ПУШИ ДЛЯ КОММЕНТАРИЕВ
-# ==========================================
-@receiver(post_save, sender=TaskComment)
-def comment_post_save_handler(sender, instance, created, **kwargs):
-    if created:
-        task = instance.task
-        author = instance.author  # Это модель Employee
+#     # --- Б. ИМЕННОЙ ПУШ ПРИ СОЗДАНИИ ---
+#     # Отправляем уведомление только если задача создана БЕЗ согласований
+#     # (если есть согласования, уведомление отправится первому согласующему в api_views.py)
+#     if created and instance.assigned_employee:
+#         # Проверяем, есть ли согласования
+#         has_approvals = (
+#             instance.status == 'send_for_approve' and 
+#             instance.creation_approval_chain and 
+#             len(instance.creation_approval_chain) > 0
+#         )
         
-        # Определяем получателя (если пишет не исполнитель — шлем исполнителю)
-        recipient_user = None
-        if task.assigned_employee and author != task.assigned_employee:
-            recipient_user = task.assigned_employee.user
-        elif task.created_by and author != task.created_by:
-            recipient_user = task.created_by.user
+#         # Отправляем уведомление только если НЕТ согласований
+#         if not has_approvals and instance.task_type not in ['task_approval', 'review', 'approval']:
+#             # Получаем ФИО создателя
+#             try:
+#                 creator_name = instance.created_by.full_name if instance.created_by else "Система"
+#             except Exception:
+#                 creator_name = "Система"
 
-        if recipient_user:
-            send_task_notification(
-                user=recipient_user,
-                title="Новый комментарий",
-                # Формат: "Иван Иванов: Текст комментария..."
-                body=f"{author.full_name}: {instance.text[:50]}...",
-                task_id=task.id
-            )
+#             user_to_notify = instance.assigned_employee.user
+#             send_task_notification(
+#                 user=user_to_notify,
+#                 title="Новая задача",
+#                 # Формат: "Алихан Смаилов назначил вам задачу: Название"
+#                 body=f"{creator_name} назначил(а) вам задачу: {instance.title}",
+#                 task_id=instance.id,
+#                 notification_type='task.created'
+#             )
+            
+#             # Также уведомляем получателей (recipients)
+#             if instance.recipients.exists():
+#                 for recipient in instance.recipients.all():
+#                     if recipient.user != user_to_notify:  # Не дублируем уведомление
+#                         send_task_notification(
+#                             user=recipient.user,
+#                             title="Новая задача",
+#                             body=f"{creator_name} добавил(а) вас в получатели задачи: {instance.title}",
+#                             task_id=instance.id,
+#                             notification_type='task.created'
+#                         )
 
-
-# ==========================================
-# 🛠 ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ОТПРАВКИ
-# ==========================================
-def send_task_notification(user, title, body, task_id):
-    """Записывает уведомление в базу и шлет именной Push через Firebase"""
-    try:
-        # 1. Запись в базу (для списка в приложении)
-        Notification.objects.create(
-            user=user,
-            message=body,
-            url=f"/task/{task_id}/"
-        )
-
-        # 2. Рассылка по всем устройствам пользователя
-        devices = FCMDevice.objects.filter(user=user)
-        
-        if not devices.exists():
-            logger.info(f"У {user.username} нет активных девайсов.")
-            return
-
-        for device in devices:
-            try:
-                message = messaging.Message(
-                    notification=messaging.Notification(
-                        title=title,
-                        body=body,
-                    ),
-                    token=device.token,
-                    data={
-                        "task_id": str(task_id),
-                        "type": "task_update"
-                    }
-                )
-                response = messaging.send(message)
-                logger.info(f"Пуш отправлен успешно: {response}")
-                
-            except Exception as e:
-                logger.warning(f"Ошибка токена {device.token}: {e}")
-                if "registration-token-not-registered" in str(e).lower():
-                    device.delete()
-    
-    except Exception as e:
-        logger.error(f"Ошибка в системе уведомлений: {e}")

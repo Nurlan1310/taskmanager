@@ -314,7 +314,7 @@ export default function TaskCreationApproval() {
                   onClick={handleApprove}
                   disabled={approveMutation.isPending}
                   variant="default"
-                  className="flex-1 bg-green-500 hover:bg-green-600"
+                  className="flex-1"
                 >
                   <CheckCircle2 className="w-4 h-4 mr-2" />
                   {approveMutation.isPending ? 'Согласование...' : 'Согласовать'}

@@ -10,10 +10,13 @@ import {
   Archive,
   UserCircle,
   ClipboardList,
-  BarChart3
+  BarChart3,
+  Bell
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
+import { useNotifications } from '@/context/NotificationContext'
 import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Дашборд', path: '/' },
@@ -25,12 +28,14 @@ const menuItems = [
   { icon: BarChart3, label: 'Статистика', path: '/statistics' },
   { icon: Users, label: 'Сотрудники', path: '/employees' },
   { icon: UserCheck, label: 'Замещение', path: '/delegation' },
+  { icon: Bell, label: 'Уведомления', path: '/notifications' },
 ]
 
 export default function Sidebar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { logout } = useAuthStore()
+  const { unreadCount } = useNotifications()
   
   const handleLogout = async () => {
     try {
@@ -76,6 +81,11 @@ export default function Sidebar() {
             >
               <Icon className="w-5 h-5" />
               <span>{item.label}</span>
+              {item.path === '/notifications' && unreadCount > 0 && (
+                <Badge variant="destructive" className="ml-auto">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </Badge>
+              )}
             </Link>
           )
         })}

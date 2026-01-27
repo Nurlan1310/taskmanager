@@ -6,11 +6,25 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ArrowLeft, Save } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Employee } from '@/types/task'
 import EmployeeModal from '@/components/EmployeeModal'
 import { useAuthStore } from '@/store/authStore'
+import { formatDateInAstanaTime } from '@/lib/dateUtils'
+import { toast } from 'sonner'
+
+interface EventCard {
+  id: number
+  title: string
+  start_date: string
+  end_date?: string
+  is_active: boolean
+  visible: boolean
+  has_plan: boolean
+  plan_status?: 'approved' | 'pending' | 'rejected'
+}
 
 interface TaskFormData {
   title: string
@@ -46,10 +60,14 @@ export default function CreateTask() {
   const [selectedRecipients, setSelectedRecipients] = useState<number[]>([])
   const [showRecipientModal, setShowRecipientModal] = useState(false)
   const [uploadedFileName, setUploadedFileName] = useState<string>('')
+  const [showCardModal, setShowCardModal] = useState(false)
+  const [cardSearchQuery, setCardSearchQuery] = useState('')
+  const [selectedCardId, setSelectedCardId] = useState<number | null>(cardId ? parseInt(cardId) : null)
   
   // Определяем роль пользователя
   const userRole = user?.employee?.role || ''
   const needsDeputySelection = !formData.is_according_to_plan && (userRole === 'staff' || userRole === 'senior' || userRole === 'head')
+  const isStaff = userRole === 'staff'
 
   const { data: employees } = useQuery<Employee[]>({
     queryKey: ['employees'],
@@ -59,18 +77,55 @@ export default function CreateTask() {
     },
   })
   
-  // Получаем список заместителей для выбора
-  const deputies = employees?.filter(emp => emp.role === 'deputy') || []
+  // Находим руководителя отдела для обычного сотрудника
+  const departmentHead = isStaff && user?.employee?.department?.id
+    ? employees?.find(emp => 
+        emp.role === 'head' && 
+        emp.department?.id === user?.employee?.department?.id
+      )
+    : null
+  
+  // Получаем список директора и заместителей для выбора
+  const deputiesAndDirector = employees?.filter(emp => 
+    emp.role === 'deputy' || emp.role === 'director'
+  ) || []
+
+  // Получаем активные мероприятия для модального окна
+  const { data: activeCards } = useQuery<EventCard[]>({
+    queryKey: ['activeCards', 'forTaskCreation'],
+    queryFn: async () => {
+      const response = await api.get('/cards/?archive=false')
+      const allCards = Array.isArray(response.data) ? response.data : (response.data.results || [])
+      // Фильтруем только активные мероприятия, где можно создавать задачи
+      return allCards.filter((card: EventCard) => {
+        // Активное мероприятие: is_active=true и (visible=true или нет плана или план утвержден)
+        return card.is_active && (card.visible || !card.has_plan || card.plan_status === 'approved')
+      })
+    },
+    enabled: showCardModal, // Загружаем только когда модальное окно открыто
+  })
+
+  // Фильтруем мероприятия по поисковому запросу
+  const filteredCards = activeCards?.filter((card) =>
+    card.title.toLowerCase().includes(cardSearchQuery.toLowerCase())
+  ) || []
 
   const { data: card } = useQuery({
-    queryKey: ['card', cardId],
+    queryKey: ['card', selectedCardId],
     queryFn: async () => {
-      if (!cardId) return null
-      const response = await api.get(`/cards/${cardId}/`)
+      if (!selectedCardId) return null
+      const response = await api.get(`/cards/${selectedCardId}/`)
       return response.data
     },
-    enabled: !!cardId,
+    enabled: !!selectedCardId,
   })
+
+  // Синхронизируем selectedCardId с cardId из URL при монтировании
+  useEffect(() => {
+    if (cardId && !selectedCardId) {
+      setSelectedCardId(parseInt(cardId))
+    }
+  }, [cardId, selectedCardId])
 
   const createTaskMutation = useMutation({
     mutationFn: async (data: TaskFormData) => {
@@ -94,7 +149,7 @@ export default function CreateTask() {
         formData.append('priority', data.priority)
         formData.append('due_date', dueDate)
         formData.append('is_according_to_plan', data.is_according_to_plan.toString())
-        if (cardId) formData.append('card', cardId)
+        if (selectedCardId) formData.append('card', selectedCardId.toString())
         selectedRecipients.forEach(id => formData.append('recipients_ids', id.toString()))
         if (data.google_drive_link) formData.append('google_drive_link', data.google_drive_link)
         if (data.creation_deputy_id) formData.append('creation_deputy_id', data.creation_deputy_id.toString())
@@ -113,7 +168,7 @@ export default function CreateTask() {
           priority: data.priority,
           due_date: dueDate,
           is_according_to_plan: data.is_according_to_plan,
-          card: cardId ? parseInt(cardId) : null,
+          card: selectedCardId,
           recipients_ids: selectedRecipients,
           google_drive_link: data.google_drive_link,
         }
@@ -126,9 +181,10 @@ export default function CreateTask() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
-      if (cardId) {
-        queryClient.invalidateQueries({ queryKey: ['card', cardId] })
+      if (selectedCardId) {
+        queryClient.invalidateQueries({ queryKey: ['card', selectedCardId] })
       }
+      toast.success('Задача успешно создана')
       navigate('/assignments')
     },
     onError: (error: any) => {
@@ -141,13 +197,13 @@ export default function CreateTask() {
     if (card) {
       if (card.has_plan && !card.visible) {
         alert('Создание задач недоступно до утверждения плана мероприятия')
-        navigate(cardId ? `/cards/${cardId}` : '/assignments')
+        navigate(selectedCardId ? `/cards/${selectedCardId}` : '/assignments')
       } else if (!card.is_active) {
         alert('Создание задач недоступно: мероприятие еще не началось или уже завершено')
-        navigate(cardId ? `/cards/${cardId}` : '/assignments')
+        navigate(selectedCardId ? `/cards/${selectedCardId}` : '/assignments')
       }
     }
-  }, [card, cardId, navigate])
+  }, [card, selectedCardId, navigate])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -160,6 +216,11 @@ export default function CreateTask() {
     // Проверяем, что карточка активна
     if (card && !card.is_active) {
       alert('Создание задач недоступно: мероприятие еще не началось или уже завершено')
+      return
+    }
+    
+    if (!selectedCardId) {
+      alert('Необходимо выбрать мероприятие')
       return
     }
     
@@ -204,17 +265,12 @@ export default function CreateTask() {
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link to={cardId ? `/cards/${cardId}` : '/tasks'}>
+          <Link to={selectedCardId ? `/cards/${selectedCardId}` : '/tasks'}>
             <ArrowLeft className="w-5 h-5" />
           </Link>
         </Button>
         <div>
           <h1 className="text-3xl font-bold">Создать задачу</h1>
-          {card && (
-            <p className="text-muted-foreground mt-1">
-              Мероприятие: {card.title}
-            </p>
-          )}
         </div>
       </div>
 
@@ -224,6 +280,43 @@ export default function CreateTask() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">
+                Мероприятие <span className="text-red-500">*</span>
+              </label>
+              {card ? (
+                <div className="p-3 border rounded-md bg-muted/50 flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">{card.title}</div>
+                    <div className="text-sm text-muted-foreground mt-1">
+                      {formatDateInAstanaTime(card.start_date)}
+                      {card.end_date && ` — ${formatDateInAstanaTime(card.end_date)}`}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedCardId(null)
+                      setShowCardModal(true)
+                    }}
+                  >
+                    Изменить
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setShowCardModal(true)}
+                >
+                  Выбрать мероприятие
+                </Button>
+              )}
+            </div>
+
             <div>
               <label className="text-sm font-medium mb-2 block">
                 Название задачи <span className="text-red-500">*</span>
@@ -269,67 +362,88 @@ export default function CreateTask() {
               </div>
             </div>
 
-            <div>
-              <label className="text-sm font-medium mb-2 block">Приоритет</label>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant={formData.priority === 'normal' ? 'default' : 'outline'}
-                  onClick={() => handleChange('priority', 'normal')}
-                >
-                  Обычная
-                </Button>
-                <Button
-                  type="button"
-                  variant={formData.priority === 'urgent' ? 'default' : 'outline'}
-                  onClick={() => handleChange('priority', 'urgent')}
-                >
-                  Срочная
-                </Button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Создание задачи
+                </label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={formData.is_according_to_plan ? 'default' : 'outline'}
+                    onClick={() => handleChange('is_according_to_plan', true)}
+                  >
+                    Согласно плана
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={!formData.is_according_to_plan ? 'default' : 'outline'}
+                    onClick={() => handleChange('is_according_to_plan', false)}
+                  >
+                    Не согласно плана
+                  </Button>
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label className="text-sm font-medium mb-2 block">
-                Создание задачи
-              </label>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant={formData.is_according_to_plan ? 'default' : 'outline'}
-                  onClick={() => handleChange('is_according_to_plan', true)}
-                >
-                  Согласно плана
-                </Button>
-                <Button
-                  type="button"
-                  variant={!formData.is_according_to_plan ? 'default' : 'outline'}
-                  onClick={() => handleChange('is_according_to_plan', false)}
-                >
-                  Не согласно плана
-                </Button>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Приоритет</label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={formData.priority === 'normal' ? 'default' : 'outline'}
+                    onClick={() => handleChange('priority', 'normal')}
+                  >
+                    Обычная
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={formData.priority === 'urgent' ? 'default' : 'outline'}
+                    onClick={() => handleChange('priority', 'urgent')}
+                  >
+                    Срочная
+                  </Button>
+                </div>
               </div>
             </div>
 
             {needsDeputySelection && (
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  Заместитель для согласования <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.creation_deputy_id || ''}
-                  onChange={(e) => handleChange('creation_deputy_id', e.target.value ? parseInt(e.target.value) : null)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="">Выберите заместителя</option>
-                  {deputies.map((deputy) => (
-                    <option key={deputy.id} value={deputy.id}>
-                      {deputy.full_name_complete || deputy.full_name} {deputy.position && `(${deputy.position})`}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <>
+                {/* Показываем заблокированного руководителя отдела для обычного сотрудника */}
+                {isStaff && departmentHead && (
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      Руководитель отдела для согласования
+                    </label>
+                    <div className="w-full px-3 py-2 border rounded-md bg-muted/50 text-muted-foreground cursor-not-allowed">
+                      {departmentHead.full_name_complete || departmentHead.full_name}
+                      {departmentHead.position && ` (${departmentHead.position})`}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Задача будет отправлена на согласование вашему руководителю отдела
+                    </p>
+                  </div>
+                )}
+                
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    Согласующий <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.creation_deputy_id || ''}
+                    onChange={(e) => handleChange('creation_deputy_id', e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full px-3 py-2 border rounded-md"
+                    required
+                  >
+                    <option value="">Выберите согласующего</option>
+                    {deputiesAndDirector.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.full_name_complete || person.full_name} 
+                        {person.position && ` (${person.position})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
             )}
 
             <div>
@@ -398,7 +512,7 @@ export default function CreateTask() {
                 {createTaskMutation.isPending ? 'Создание...' : 'Создать задачу'}
               </Button>
               <Button type="button" variant="outline" asChild>
-                <Link to={cardId ? `/cards/${cardId}` : '/tasks'}>Отмена</Link>
+                <Link to={selectedCardId ? `/cards/${selectedCardId}` : '/tasks'}>Отмена</Link>
               </Button>
             </div>
           </form>
@@ -414,6 +528,68 @@ export default function CreateTask() {
         onToggle={toggleRecipient}
         title="Выберите адресатов"
       />
+
+      {/* Модальное окно выбора мероприятия */}
+      <Dialog 
+        open={showCardModal} 
+        onOpenChange={(open) => {
+          setShowCardModal(open)
+          if (!open) setCardSearchQuery('')
+        }}
+        centered
+        maxWidth="xl"
+      >
+        <DialogContent onClose={() => {
+          setShowCardModal(false)
+          setCardSearchQuery('')
+        }}>
+          <DialogHeader>
+            <DialogTitle>Выберите мероприятие</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="mb-4">
+              <Input
+                type="text"
+                placeholder="Поиск мероприятия..."
+                value={cardSearchQuery}
+                onChange={(e) => setCardSearchQuery(e.target.value)}
+              />
+            </div>
+            {activeCards && activeCards.length > 0 ? (
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {filteredCards.length > 0 ? (
+                  filteredCards.map((card) => (
+                    <button
+                      key={card.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCardId(card.id)
+                        setShowCardModal(false)
+                        setCardSearchQuery('')
+                      }}
+                      className="w-full text-left p-4 border rounded-lg hover:bg-accent transition-colors"
+                    >
+                      <div className="font-semibold">{card.title}</div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        {formatDateInAstanaTime(card.start_date)}
+                        {card.end_date && ` — ${formatDateInAstanaTime(card.end_date)}`}
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Не найдено мероприятий по запросу
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                Нет доступных активных мероприятий
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

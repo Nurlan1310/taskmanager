@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { useAuthStore } from './store/authStore'
+import { NotificationProvider } from './context/NotificationContext'
 import Layout from './components/layout/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -22,6 +24,7 @@ import CreateCard from './pages/CreateCard'
 import Employees from './pages/Employees'
 import Delegation from './pages/Delegation'
 import Profile from './pages/Profile'
+import Notifications from './pages/Notifications'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, checkAuth } = useAuthStore()
@@ -43,41 +46,45 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/"
-          element={
-            <PrivateRoute>
-              <Layout />
-            </PrivateRoute>
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="tasks" element={<Tasks />} />
-          <Route path="assignments" element={<Assignments />} />
-          <Route path="tasks/new" element={<CreateTask />} />
-          <Route path="tasks/:id" element={<TaskDetail />} />
-          <Route path="tasks/:id/edit" element={<EditTask />} />
-          <Route path="tasks/:id/execute" element={<ExecuteTask />} />
-          <Route path="tasks/:id/review" element={<TaskReview />} />
-          <Route path="tasks/:id/creation-approval" element={<TaskCreationApproval />} />
-          <Route path="tasks/:id/approve-plan" element={<PlanApproval />} />
-          <Route path="calendar" element={<Calendar />} />
-          <Route path="cards/:cardId/tasks/new" element={<CreateTask />} />
-          <Route path="cards" element={<Cards />} />
-          <Route path="cards/new" element={<CreateCard />} />
-          <Route path="cards/:id" element={<CardDetail />} />
-          <Route path="cards/:cardId/tasks/new" element={<CreateTask />} />
-          <Route path="archive" element={<Archive />} />
-          <Route path="statistics" element={<Statistics />} />
-          <Route path="employees" element={<Employees />} />
-          <Route path="delegation" element={<Delegation />} />
-          <Route path="profile" element={<Profile />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <NotificationProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/"
+            element={
+              <PrivateRoute>
+                <Layout />
+              </PrivateRoute>
+            }
+          >
+            <Route index element={<Dashboard />} />
+            <Route path="tasks" element={<Tasks />} />
+            <Route path="assignments" element={<Assignments />} />
+            <Route path="tasks/new" element={<CreateTask />} />
+            <Route path="tasks/:id" element={<TaskDetail />} />
+            <Route path="tasks/:id/edit" element={<EditTask />} />
+            <Route path="tasks/:id/execute" element={<ExecuteTask />} />
+            <Route path="tasks/:id/review" element={<TaskReview />} />
+            <Route path="tasks/:id/creation-approval" element={<TaskCreationApproval />} />
+            <Route path="tasks/:id/approve-plan" element={<PlanApproval />} />
+            <Route path="calendar" element={<Calendar />} />
+            <Route path="cards/:cardId/tasks/new" element={<CreateTask />} />
+            <Route path="cards" element={<Cards />} />
+            <Route path="cards/new" element={<CreateCard />} />
+            <Route path="cards/:id" element={<CardDetail />} />
+            <Route path="cards/:cardId/tasks/new" element={<CreateTask />} />
+            <Route path="archive" element={<Archive />} />
+            <Route path="statistics" element={<Statistics />} />
+            <Route path="employees" element={<Employees />} />
+            <Route path="delegation" element={<Delegation />} />
+            <Route path="notifications" element={<Notifications />} />
+            <Route path="profile" element={<Profile />} />
+          </Route>
+        </Routes>
+        <Toaster position="top-right" richColors />
+      </BrowserRouter>
+    </NotificationProvider>
   )
 }
 

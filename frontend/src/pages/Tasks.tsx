@@ -279,25 +279,34 @@ export default function Tasks() {
       const params = new URLSearchParams()
       params.append('scope', scopeFilter)
       if (statusFilter !== 'all') params.append('status', statusFilter)
-      // Фильтр по типу задач
-      if (typeFilter === 'approval') {
-        // Показываем только задачи на согласование (approval и review)
-        params.append('approval_review', 'true')
-      } else if (typeFilter === 'normal') {
-        // Для обычных задач исключаем approval и review (не передаем параметр, так как по умолчанию они исключаются)
-        // Можно также передать отрицательный фильтр, но API должен это обработать
-        // Пока оставим как есть - бэкенд должен исключать approval/review по умолчанию для обычных задач
-      }
-      // typeFilter === 'all' - не передаем параметры, показываем все
+      // Фильтрация по типу задач теперь происходит на клиенте
       if (query) params.append('search', query)
       if (selectedEmployeeId) params.append('employee_id', selectedEmployeeId.toString())
       
       const response = await api.get(`/tasks/?${params.toString()}`)
-      const allTasks = Array.isArray(response.data) ? response.data : (response.data.results || [])
+      let allTasks = Array.isArray(response.data) ? response.data : (response.data.results || [])
       
-      // Если выбран фильтр "Обычные", фильтруем на клиенте (исключаем approval и review)
+      // Фильтр по статусу "Активные" - показываем только активные статусы
+      if (statusFilter === 'all') {
+        const activeStatuses: TaskStatus[] = ['new', 'in_progress', 'under_review', 'sent_for_review']
+        allTasks = allTasks.filter((task: Task) => activeStatuses.includes(task.status))
+      }
+      
+      // Фильтр по типу задач
       if (typeFilter === 'normal') {
-        return allTasks.filter((task: Task) => task.task_type !== 'approval' && task.task_type !== 'review' && task.task_type !== 'task_approval')
+        // Обычные задачи - исключаем approval, review и task_approval
+        allTasks = allTasks.filter((task: Task) => 
+          task.task_type !== 'approval' && 
+          task.task_type !== 'review' && 
+          task.task_type !== 'task_approval'
+        )
+      } else if (typeFilter === 'approval') {
+        // Согласования - показываем approval, review и task_approval
+        allTasks = allTasks.filter((task: Task) => 
+          task.task_type === 'approval' || 
+          task.task_type === 'review' || 
+          task.task_type === 'task_approval'
+        )
       }
       
       return allTasks
@@ -493,10 +502,15 @@ export default function Tasks() {
       )}
 
       {/* Модальное окно выбора мероприятия */}
-      <Dialog open={showCardModal} onOpenChange={(open) => {
-        setShowCardModal(open)
-        if (!open) setCardSearchQuery('')
-      }}>
+      <Dialog 
+        open={showCardModal} 
+        onOpenChange={(open) => {
+          setShowCardModal(open)
+          if (!open) setCardSearchQuery('')
+        }}
+        centered
+        maxWidth="xl"
+      >
         <DialogContent onClose={() => {
           setShowCardModal(false)
           setCardSearchQuery('')

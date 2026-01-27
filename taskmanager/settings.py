@@ -94,12 +94,25 @@ WSGI_APPLICATION = 'taskmanager.wsgi.application'
 # ДРУГА: Каналы для веб-сокетов
 ASGI_APPLICATION = 'taskmanager.asgi.application'
 
-# 🔥 ВАЖНО: Добавил настройки каналов (Channels), чтобы код друга не упал
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+# 🔥 ВАЖНО: Настройки каналов (Channels) для WebSocket уведомлений
+# Для разработки используем InMemoryChannelLayer
+# Для продакшена рекомендуется использовать Redis
+if DEBUG:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer"
+        }
     }
-}
+else:
+    # Для продакшена используем Redis (нужно установить channels-redis)
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [("127.0.0.1", 6379)],  # Адрес Redis сервера
+            },
+        },
+    }
 
 # Database
 DATABASES = {

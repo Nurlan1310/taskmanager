@@ -132,3 +132,13 @@ export interface EventCard {
   plan_rejected_reason?: string
   
 }
+
+export interface Notification {
+  id: number
+  message: string
+  url?: string
+  type?: string
+  task_id?: number
+  created_at: string
+  is_read: boolean
+}

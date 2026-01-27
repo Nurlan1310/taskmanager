@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, CheckCircle2, XCircle, FileText, User, Calendar } from 'lucide-react'
 import { Task, EventCard } from '@/types/task'
@@ -16,7 +16,11 @@ interface PlanApprovalData {
   card: EventCard
   approvers: Array<{
     id: number
-    employee: { id: number; user: { first_name: string; last_name: string } }
+    employee: { 
+      id: number
+      full_name?: string
+      user: { first_name: string; last_name: string }
+    }
     order: number
   }>
   current_approver_index: number
@@ -78,6 +82,7 @@ export default function PlanApproval() {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['cards'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('План мероприятия согласован')
       navigate(`/cards/${approvalData?.card.id}`)
     },
     onError: (error: any) => {
@@ -103,6 +108,7 @@ export default function PlanApproval() {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['cards'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('План мероприятия отклонен')
       navigate(`/cards/${approvalData?.card.id}`)
     },
     onError: (error: any) => {
@@ -111,7 +117,7 @@ export default function PlanApproval() {
   })
 
   const handleApprove = () => {
-    if (window.confirm('Вы уверены, что хотите утвердить этот план?')) {
+    if (window.confirm('Вы уверены, что хотите согласовать этот план?')) {
       approveMutation.mutate()
     }
   }
@@ -263,7 +269,7 @@ export default function PlanApproval() {
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">
-                      {`${approver.employee.user.first_name} ${approver.employee.user.last_name}`}
+                      {approver.employee.full_name || `${approver.employee.user.first_name} ${approver.employee.user.last_name}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {isCompleted ? 'Согласовано' : isCurrent ? 'Текущий согласующий' : 'Ожидает согласования'}
@@ -297,7 +303,7 @@ export default function PlanApproval() {
                 </div>
                 <div className="flex-1">
                   <p className="font-medium">
-                    {card.final_approver.user.first_name} {card.final_approver.user.last_name}
+                    {((card.final_approver as any)?.full_name) || `${card.final_approver.user.first_name} ${card.final_approver.user.last_name}`}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {card.plan_status === 'approved' ? 'Утверждено' : 'Финальный утверждающий'}
@@ -328,31 +334,30 @@ export default function PlanApproval() {
       {task.status !== 'done' && task.status !== 'rejected' && (
         <Card>
           <CardHeader>
-            <CardTitle>Действия</CardTitle>
+            <CardTitle>Решение по согласованию</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {!showRejectForm ? (
-              <>
+              <div className="flex gap-4">
                 <Button
                   onClick={handleApprove}
                   disabled={approveMutation.isPending}
-                  className="w-full bg-green-500 hover:bg-green-600"
-                  size="lg"
+                  variant="default"
+                  className="flex-1"
                 >
-                  <CheckCircle2 className="w-5 h-5 mr-2" />
-                  {isFinalApprover ? 'Утвердить план' : 'Согласовать план'}
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  {approveMutation.isPending ? 'Согласование...' : (isFinalApprover ? 'Утвердить' : 'Согласовать')}
                 </Button>
                 <Button
                   onClick={() => setShowRejectForm(true)}
                   disabled={approveMutation.isPending}
                   variant="destructive"
-                  className="w-full"
-                  size="lg"
+                  className="flex-1"
                 >
-                  <XCircle className="w-5 h-5 mr-2" />
+                  <XCircle className="w-4 h-4 mr-2" />
                   Отклонить план
                 </Button>
-              </>
+              </div>
             ) : (
               <div className="space-y-4">
                 <div>
@@ -367,31 +372,8 @@ export default function PlanApproval() {
                     required
                   />
                 </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block">
-                    Исправленный план (необязательно)
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="file"
-                      accept=".pdf,.doc,.docx,.xls,.xlsx"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] || null
-                        setCorrectedPlanFile(file)
-                      }}
-                      className="flex-1"
-                    />
-                    {correctedPlanFile && (
-                      <span className="text-sm text-muted-foreground">
-                        {correctedPlanFile.name}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Вы можете загрузить исправленный план мероприятия
-                  </p>
-                </div>
-                <div className="flex gap-2">
+                
+                <div className="flex gap-4">
                   <Button
                     onClick={handleReject}
                     disabled={rejectMutation.isPending || !rejectReason.trim()}

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { formatDateTimeInAstanaTime } from '@/lib/dateUtils'
 import { Task, TaskAttachment } from '@/types/task'
+import { toast } from 'sonner'
 
 interface ReviewData {
   review_task: Task
@@ -59,6 +60,7 @@ export default function TaskReview() {
       queryClient.invalidateQueries({ queryKey: ['taskReview', id] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Исполнение задачи утверждено')
       navigate('/tasks')
     },
   })
@@ -71,6 +73,7 @@ export default function TaskReview() {
       queryClient.invalidateQueries({ queryKey: ['taskReview', id] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Исполнение задачи отправлено на доработку')
       navigate('/tasks')
     },
   })

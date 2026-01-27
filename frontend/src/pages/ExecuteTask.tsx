@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Task } from '@/types/task'
 import { ArrowLeft, Save, X } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function ExecuteTask() {
   const { id } = useParams<{ id: string }>()
@@ -38,6 +39,7 @@ export default function ExecuteTask() {
       queryClient.invalidateQueries({ queryKey: ['task', id] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Исполнение задачи отправлено на проверку')
       navigate(`/tasks/${id}`)
     },
   })

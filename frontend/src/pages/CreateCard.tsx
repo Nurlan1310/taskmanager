@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -138,6 +139,7 @@ export default function CreateCard() {
     },
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['cards'] })
+      toast.success('Карточка мероприятия создана')
       navigate(`/cards/${response.data.id}`)
     },
     onError: (error: any) => {
