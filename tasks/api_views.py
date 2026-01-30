@@ -15,6 +15,8 @@ from .models import Task, EventCard, Employee, Category, Department, CardApprove
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.http import FileResponse
+from urllib.parse import quote
+import mimetypes
 import os
 from .serializers import (
     TaskSerializer, EventCardSerializer, EventCardDetailSerializer,
@@ -2318,10 +2320,28 @@ def download_plan_file_view(request, card_id):
         )
 
     file_path = card.plan_file.path
-    filename = os.path.basename(card.plan_file.name) or os.path.basename(file_path)
+    filename = (os.path.basename(card.plan_file.name) or os.path.basename(file_path) or 'plan').strip()
+    if not filename:
+        filename = 'plan'
+    # Сохраняем расширение из реального файла, если в имени его нет
+    _, ext = os.path.splitext(os.path.basename(file_path))
+    if ext and not os.path.splitext(filename)[1]:
+        filename = filename.rstrip('.') + ext
 
-    response = FileResponse(open(file_path, 'rb'), as_attachment=True, filename=filename)
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    content_type, _ = mimetypes.guess_type(filename)
+    if content_type:
+        response = FileResponse(open(file_path, 'rb'), content_type=content_type, as_attachment=True, filename=filename)
+    else:
+        response = FileResponse(open(file_path, 'rb'), as_attachment=True, filename=filename)
+
+    # RFC 5987: ASCII fallback + UTF-8 для кириллицы и спецсимволов
+    ext = os.path.splitext(filename)[1]
+    has_non_ascii = filename != filename.encode('ascii', 'ignore').decode('ascii')
+    if has_non_ascii:
+        ascii_fallback = 'plan' + (ext if ext else '')
+        response['Content-Disposition'] = f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(filename)}'
+    else:
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
 
 
