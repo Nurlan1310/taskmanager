@@ -34,6 +34,7 @@ urlpatterns = [
     path('tasks/<int:task_id>/recall/', api_views.recall_task_view, name='api-recall-task'),
     path('cards/<int:card_id>/approvers/', api_views.card_approvers_view, name='api-card-approvers'),
     path('cards/<int:card_id>/upload-corrected-plan/', api_views.upload_corrected_plan_view, name='api-upload-corrected-plan'),
+    path('cards/<int:card_id>/download-plan/', api_views.download_plan_file_view, name='api-download-plan'),
     path('statistics/', api_views.statistics_view, name='api-statistics'),
     # Уведомления - специфичные маршруты должны идти перед общими
     path('notifications/mark-all-read/', api_views.notifications_mark_all_read_view, name='api-notifications-mark-all-read'),

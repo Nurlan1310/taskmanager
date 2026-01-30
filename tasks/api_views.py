@@ -14,6 +14,8 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from .models import Task, EventCard, Employee, Category, Department, CardApproverOrder, TaskHistory, Notification
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.http import FileResponse
+import os
 from .serializers import (
     TaskSerializer, EventCardSerializer, EventCardDetailSerializer,
     EmployeeSerializer, UserSerializer, CategorySerializer, DepartmentSerializer, NotificationSerializer
@@ -2272,6 +2274,55 @@ def card_approvers_view(request, card_id):
         })
     
     return Response(approvers_data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def download_plan_file_view(request, card_id):
+    """Скачать файл плана мероприятия с заголовком Content-Disposition: attachment"""
+    try:
+        employee = request.user.employee
+    except Employee.DoesNotExist:
+        return Response(
+            {'error': 'У пользователя нет связанного сотрудника'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    card = get_object_or_404(EventCard, id=card_id)
+
+    # Та же логика доступа, что и в EventCardViewSet.get_queryset()
+    effective_employee = employee.get_effective_employee()
+    if effective_employee.role in ("director", "deputy"):
+        allowed_ids = EventCard.objects.values_list('id', flat=True)
+    else:
+        access_filter = Q(visible=True)
+        if effective_employee.department:
+            hidden_access = (
+                Q(visible=False) &
+                (Q(responsible_department=effective_employee.department) |
+                 Q(shared_departments=effective_employee.department))
+            )
+            access_filter |= hidden_access
+        allowed_ids = EventCard.objects.filter(access_filter).distinct().values_list('id', flat=True)
+
+    if card.id not in allowed_ids:
+        return Response(
+            {'error': 'Нет доступа к этой карточке'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if not card.plan_file:
+        return Response(
+            {'error': 'Файл плана не найден'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    file_path = card.plan_file.path
+    filename = os.path.basename(card.plan_file.name) or os.path.basename(file_path)
+
+    response = FileResponse(open(file_path, 'rb'), as_attachment=True, filename=filename)
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
 
 
 @api_view(['POST'])
