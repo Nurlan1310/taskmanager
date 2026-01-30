@@ -221,8 +221,7 @@ export default function PlanApproval() {
             <div>
               <h3 className="font-semibold mb-2">План мероприятия</h3>
               <a
-                href={card.plan_file}
-                target="_blank"
+                href={`/api/cards/${card.id}/download-plan/`}
                 rel="noopener noreferrer"
                 className="text-primary hover:underline flex items-center gap-2"
               >

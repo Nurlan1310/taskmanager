@@ -2214,7 +2214,8 @@ def reject_plan_view(request, task_id):
     with transaction.atomic():
         # Завершаем текущую задачу
         task.status = "done"
-        task.save(update_fields=["status"])
+        task.completed_at = timezone.now()
+        task.save(update_fields=["status", "completed_at"])
         
         TaskHistory.objects.create(
             task=task,
@@ -3050,7 +3051,8 @@ def approve_creation_view(request, task_id):
     with transaction.atomic():
         # Закрываем текущую задачу-согласование
         approval_task.status = 'done'
-        approval_task.save(update_fields=['status'])
+        approval_task.completed_at = timezone.now()
+        approval_task.save(update_fields=['status', 'completed_at'])
         TaskHistory.objects.create(
             task=approval_task,
             employee=effective_employee,
@@ -3373,7 +3375,8 @@ def reject_creation_view(request, task_id):
     with transaction.atomic():
         # Закрываем текущую задачу-согласование (статус done)
         approval_task.status = 'done'
-        approval_task.save(update_fields=['status'])
+        approval_task.completed_at = timezone.now() 
+        approval_task.save(update_fields=['status', 'completed_at'])
         TaskHistory.objects.create(
             task=approval_task,
             employee=effective_employee,
