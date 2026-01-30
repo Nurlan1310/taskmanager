@@ -373,8 +373,13 @@ export default function CardDetail() {
                   <div className="text-sm">
                     <a
                       href={card.plan_file}
-                      download={card.plan_file || undefined}
-                      rel="noopener noreferrer"
+                      download={(() => {
+                        try {
+                          return decodeURIComponent(card.plan_file!.split('/').pop() || '')
+                        } catch {
+                          return card.plan_file!.split('/').pop() || 'plan'
+                        }
+                      })()}
                       className="text-primary hover:underline flex items-center gap-2"
                     >
                       <FileText className="w-4 h-4" />
