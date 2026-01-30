@@ -132,13 +132,13 @@ class TaskSerializer(serializers.ModelSerializer):
             'task_type', 'task_type_display', 'priority', 'priority_display', 'is_urgent',
             'is_according_to_plan', 'creation_approval_chain', 'current_approval_index',
             'parent_task_id', 'relation_type',
-            'created_at', 'due_date', 'created_by', 'created_by_name',
+            'created_at', 'due_date', 'completed_at', 'created_by', 'created_by_name',
             'assigned_employee', 'assigned_employee_id', 'assigned_employee_name',
             'assigned_department', 'assigned_department_id', 'assigned_department_name',
             'recipients', 'recipients_ids', 'card', 'card_title',
             'google_drive_link', 'review_comment', 'history', 'attachments', 'redirected_by', 'redirect_chain', 'redirect_chain_employees', 'current_reviewer', 'current_approver'
         ]
-        read_only_fields = ['created_at']
+        read_only_fields = ['created_at', 'completed_at']
 
     # ✅ ИСПРАВЛЕНИЕ: Показываем ФИО или "Не назначен"
     def get_assigned_employee_name(self, obj):

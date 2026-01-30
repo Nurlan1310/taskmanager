@@ -58,3 +58,94 @@
   }
 }
 
+/* FullCalendar — оформление под тему приложения */
+.fc {
+  --fc-border-color: hsl(var(--border));
+  --fc-button-bg-color: hsl(var(--primary));
+  --fc-button-border-color: hsl(var(--primary));
+  --fc-button-hover-bg-color: hsl(var(--primary) / 0.9);
+  --fc-button-hover-border-color: hsl(var(--primary));
+  --fc-button-active-bg-color: hsl(var(--primary) / 0.85);
+  --fc-today-bg-color: hsl(var(--accent) / 0.5);
+  --fc-page-bg-color: hsl(var(--card));
+  --fc-neutral-bg-color: hsl(var(--muted));
+  --fc-list-event-hover-bg-color: hsl(var(--accent));
+}
+.fc .fc-toolbar-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.fc .fc-button {
+  text-transform: none;
+  font-weight: 500;
+}
+.fc-theme-standard .fc-scrollgrid {
+  border-color: hsl(var(--border));
+}
+.fc .fc-col-header-cell {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+.fc .fc-daygrid-day-number {
+  font-size: 0.875rem;
+  padding: 4px 6px;
+}
+.fc .fc-day-today .fc-daygrid-day-number {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-radius: 9999px;
+  min-width: 1.75rem;
+  text-align: center;
+}
+.fc-event {
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+.fc-event:hover {
+  filter: brightness(0.95);
+}
+.fc .fc-more-link:hover {
+  color: hsl(var(--primary));
+}
+
+/* Круги в ячейках месяца */
+.fc .fc-daygrid-day-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 0;
+}
+.fc .fc-daygrid-day-frame {
+  min-height: 2.5rem;
+}
+.fc .fc-daygrid-event-harness {
+  margin: 0;
+}
+.fc .fc-daygrid-event {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+.fc .fc-daygrid-event .fc-event-main {
+  padding: 0;
+  min-height: 0;
+  overflow: visible;
+}
+.calendar-event-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.calendar-event-dot:hover {
+  transform: scale(1.15);
+  filter: brightness(1.1);
+}
+

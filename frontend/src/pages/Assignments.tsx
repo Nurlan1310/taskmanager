@@ -10,8 +10,9 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Task, TaskStatus } from '@/types/task'
+import { Task, TaskStatus, Employee } from '@/types/task'
 import { 
   Plus, 
   Filter, 
@@ -22,7 +23,9 @@ import {
   CheckCircle2,
   Circle,
   AlertCircle,
-  FileText
+  FileText,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
 import { formatDateTimeInAstanaTime, formatDateInAstanaTime } from '@/lib/dateUtils'
 
@@ -177,10 +180,14 @@ interface EventCard {
   plan_status?: 'draft' | 'pending' | 'rejected' | 'approved'
 }
 
+const ASSIGNMENTS_PER_PAGE = 30
+
 export default function Assignments() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
   const [showCardModal, setShowCardModal] = useState(false)
   const [cardSearchQuery, setCardSearchQuery] = useState('')
   const { query, setQuery } = useSearchStore()
@@ -192,6 +199,20 @@ export default function Assignments() {
       setQuery(searchQuery)
     }
   }, [searchParams, setQuery])
+
+  // Сброс страницы при изменении фильтров
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [statusFilter, selectedAssigneeId, query])
+
+  // Список сотрудников для фильтра «Исполнитель»
+  const { data: employees } = useQuery<Employee[]>({
+    queryKey: ['employees'],
+    queryFn: async () => {
+      const response = await api.get('/employees/')
+      return Array.isArray(response.data) ? response.data : (response.data.results || [])
+    },
+  })
 
   // Получаем активные мероприятия для модального окна
   const { data: activeCards } = useQuery<EventCard[]>({
@@ -217,21 +238,49 @@ export default function Assignments() {
     card.title.toLowerCase().includes(cardSearchQuery.toLowerCase())
   ) || []
 
-  const { data: tasks, isLoading, refetch } = useQuery<Task[]>({
-    queryKey: ['assignments', statusFilter, query],
+  const { data: tasksData, isLoading, refetch } = useQuery<{
+    results: Task[]
+    count: number
+    next: string | null
+    previous: string | null
+  }>({
+    queryKey: ['assignments', statusFilter, query, selectedAssigneeId, currentPage],
     queryFn: async () => {
       const params = new URLSearchParams()
-      params.append('scope', 'assignments') // Фильтр по созданным задачам
+      params.append('scope', 'assignments')
       if (statusFilter !== 'all') params.append('status', statusFilter)
       if (query) params.append('search', query)
-      
+      if (selectedAssigneeId) params.append('employee_id', selectedAssigneeId.toString())
+      params.append('page', currentPage.toString())
+
       const response = await api.get(`/tasks/?${params.toString()}`)
-      const allTasks = Array.isArray(response.data) ? response.data : (response.data.results || [])
-      
-      // Показываем только задачи типа regular
-      return allTasks.filter((task: Task) => task.task_type === 'regular')
+
+      if (Array.isArray(response.data)) {
+        const regular = response.data.filter((task: Task) => task.task_type === 'regular')
+        return {
+          results: regular,
+          count: regular.length,
+          next: null,
+          previous: null,
+        }
+      }
+
+      const allTasks = response.data.results || []
+      const regular = allTasks.filter((task: Task) => task.task_type === 'regular')
+      return {
+        results: regular,
+        count: response.data.count ?? regular.length,
+        next: response.data.next ?? null,
+        previous: response.data.previous ?? null,
+      }
     },
   })
+
+  const tasks = tasksData?.results ?? []
+  const totalCount = tasksData?.count ?? 0
+  const hasNext = !!tasksData?.next
+  const hasPrevious = !!tasksData?.previous
+  const totalPages = Math.ceil(totalCount / ASSIGNMENTS_PER_PAGE) || 1
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
@@ -289,10 +338,10 @@ export default function Assignments() {
 
       {/* Фильтры */}
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Фильтры по статусу */}
-            <div className="flex items-center gap-2">
+        <CardContent className="p-4 space-y-3">
+          {/* Первая строка: Статус и переключатель страниц */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Статус:</span>
               <div className="flex flex-wrap gap-1">
                 {statusColumns.map((col) => {
@@ -311,6 +360,53 @@ export default function Assignments() {
                   )
                 })}
               </div>
+            </div>
+
+            {/* Переключатель страниц */}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={!hasPrevious}
+                  className="h-8 px-2"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  Страница {currentPage} из {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={!hasNext}
+                  className="h-8 px-2"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Вторая строка: Исполнитель */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Исполнитель:</span>
+              <Select
+                value={selectedAssigneeId?.toString() ?? ''}
+                onChange={(e) => setSelectedAssigneeId(e.target.value ? parseInt(e.target.value, 10) : null)}
+                className="h-8 text-xs min-w-[180px]"
+              >
+                <option value="">Все</option>
+                {(employees ?? []).map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.full_name ?? ([emp.firstname, emp.lastname].filter(Boolean).join(' ') || `Сотрудник ${emp.id}`)}
+                    {emp.position ? ` (${emp.position})` : ''}
+                  </option>
+                ))}
+              </Select>
             </div>
           </div>
         </CardContent>

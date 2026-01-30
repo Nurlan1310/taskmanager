@@ -2,9 +2,12 @@ from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.db.models import Q, Count
+from django.db.models.expressions import RawSQL
+from django.db import connection
 from django.utils import timezone
 from datetime import timedelta, datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -15,6 +18,12 @@ from .serializers import (
     TaskSerializer, EventCardSerializer, EventCardDetailSerializer,
     EmployeeSerializer, UserSerializer, CategorySerializer, DepartmentSerializer, NotificationSerializer
 )
+
+
+class TaskPagination(PageNumberPagination):
+    page_size = 30
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 
 @api_view(['GET'])
@@ -328,6 +337,7 @@ def dashboard_view(request):
 class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = TaskPagination  # 30 задач на страницу для страницы Задачи
 
     def get_queryset(self):
         try:
@@ -341,8 +351,34 @@ class TaskViewSet(viewsets.ModelViewSet):
         scope = self.request.query_params.get('scope', 'mine')  # mine, department, all
         employee_id = self.request.query_params.get('employee_id')
         
-        # Если указан конкретный сотрудник для фильтрации
-        if employee_id:
+        # Поручения (assignments): задачи, созданные пользователем; опционально по исполнителю
+        if scope == 'assignments':
+            queryset = Task.objects.filter(created_by=effective_employee)
+            if employee_id:
+                try:
+                    filter_employee = Employee.objects.get(id=employee_id)
+                    # Задачи, где выбранный сотрудник — исполнитель или в цепочке перенаправлений
+                    if connection.vendor == 'postgresql':
+                        queryset = queryset.filter(
+                            Q(assigned_employee=filter_employee) |
+                            Q(redirect_chain__contains=[filter_employee.id])
+                        )
+                    else:
+                        # SQLite и др.: проверка вхождения в redirect_chain через raw SQL
+                        table = Task._meta.db_table
+                        subquery = RawSQL(
+                            f"SELECT t.id FROM {table} t, json_each(t.redirect_chain) "
+                            "WHERE json_each.value = %s AND t.created_by_id = %s",
+                            [filter_employee.id, effective_employee.id],
+                        )
+                        queryset = queryset.filter(
+                            Q(assigned_employee=filter_employee) |
+                            Q(id__in=subquery)
+                        )
+                except (Employee.DoesNotExist, ValueError):
+                    queryset = Task.objects.none()
+        # Если указан конкретный сотрудник для фильтрации (для scope != assignments)
+        elif employee_id:
             try:
                 filter_employee = Employee.objects.get(id=employee_id)
                 # Проверяем права доступа
@@ -401,11 +437,6 @@ class TaskViewSet(viewsets.ModelViewSet):
                         Q(assigned_employee=effective_employee) |
                         Q(recipients=effective_employee)
                     ).distinct()
-            elif scope == 'assignments':
-                # Поручения - задачи, которые создал пользователь
-                queryset = Task.objects.filter(
-                    created_by=effective_employee
-                ).distinct()
             else:  # scope == 'mine' (по умолчанию)
                 # Мои задачи - только те, которые поручили мне
                 queryset = Task.objects.filter(
@@ -419,10 +450,11 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         # Фильтры
         status_filter = self.request.query_params.get('status')
+        include_done = self.request.query_params.get('include_done', '').lower() == 'true'
         if status_filter:
             queryset = queryset.filter(status=status_filter)
-        else:
-            # По умолчанию исключаем выполненные задачи (для "Активные")
+        elif not include_done:
+            # По умолчанию исключаем выполненные задачи (для "Активные"); календарь передаёт include_done=true
             queryset = queryset.exclude(status='done')
 
         task_type = self.request.query_params.get('task_type')
@@ -910,7 +942,6 @@ class TaskViewSet(viewsets.ModelViewSet):
                 parent_task=task,
                 relation_type='creation_approval',
                 card=task.card,
-                due_date=task.due_date,
             )
             TaskHistory.objects.create(
                 task=task,
@@ -1106,7 +1137,6 @@ class TaskViewSet(viewsets.ModelViewSet):
                     parent_task=instance,
                     relation_type='creation_approval',
                     card=instance.card,
-                    due_date=instance.due_date,
                 )
                 
                 TaskHistory.objects.create(
@@ -1509,10 +1539,13 @@ def take_task_view(request, task_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def complete_task_view(request, task_id):
-    """Завершить задачу (старый endpoint, оставлен для совместимости)"""
+    """
+    Завершить задачу (старый endpoint, оставлен для совместимости).
+    Исполнитель помечает задачу как выполненную без прохождения проверки.
+    """
     from .models import TaskHistory
     from django.shortcuts import get_object_or_404
-    
+
     task = get_object_or_404(Task, id=task_id)
     employee = request.user.employee
 
@@ -1531,6 +1564,24 @@ def complete_task_view(request, task_id):
         employee=employee,
         action='done',
     )
+
+    # Уведомление создателю задачи: исполнитель завершил задачу (без проверки).
+    # Отправляется только если создатель не совпадает с исполнителем.
+    if task.created_by and task.created_by.user and task.created_by.user != request.user:
+        try:
+            from .notifications import send_task_notification
+            executor_name = employee.full_name if employee.full_name else employee.user.get_full_name() or employee.user.username
+            send_task_notification(
+                user=task.created_by.user,
+                title="Задача завершена",
+                body=f"{executor_name} завершил(-а) задачу «{task.title}»",
+                task_id=task.id,
+                notification_type='task.completed'
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Ошибка отправки уведомления создателю о завершении задачи: {e}")
 
     return Response(TaskSerializer(task).data)
 
@@ -2512,6 +2563,22 @@ def task_review_approve_view(request, task_id):
                 action="done",
                 comment=comment or "Задача проверена и утверждена всеми проверяющими."
             )
+            # Уведомление исполнителю: выполнение задачи утверждено последним проверяющим
+            if base_task.assigned_employee and base_task.assigned_employee.user:
+                try:
+                    from .notifications import send_task_notification
+                    reviewer_name = effective_reviewer.full_name if effective_reviewer.full_name else effective_reviewer.user.get_full_name() or effective_reviewer.user.username
+                    send_task_notification(
+                        user=base_task.assigned_employee.user,
+                        title="Задача утверждена",
+                        body=f"{reviewer_name} утвердил(-а) выполнение задачи «{base_task.title}»",
+                        task_id=base_task.id,
+                        notification_type='task.execution_approved'
+                    )
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Ошибка отправки уведомления исполнителю об утверждении: {e}")
         else:
             # Если есть еще проверяющие, создаем задачу на проверку для следующего
             next_reviewer_index = current_reviewer_index + 1
@@ -2552,7 +2619,23 @@ def task_review_approve_view(request, task_id):
                         action="created",
                         comment=f"Создана задача для проверки выполнения. Проверяющий: {next_reviewer.full_name}."
                     )
-
+                    #Отправляем уведомление следующему проверяющему TODO: Добавить уведомление
+                    if next_reviewer.user:
+                        try:
+                            from .notifications import send_task_notification
+                            next_reviewer_name = next_reviewer.full_name if next_reviewer.full_name else next_reviewer.user.get_full_name() or next_reviewer.user.username
+                            send_task_notification(
+                                user=next_reviewer.user,
+                                title="Новая задача на проверку",
+                                body=f"Задача «{base_task.title}» передана на проверку вам.",
+                                task_id=next_review_task.id,
+                                notification_type='task.review_created'
+                            )
+                        except Exception as e:
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.error(f"Ошибка отправки уведомления следующему проверяющему: {e}")
+    
     from .serializers import TaskSerializer
     return Response(TaskSerializer(base_task).data if base_task else TaskSerializer(review_task).data)
 
@@ -2615,6 +2698,22 @@ def task_review_reject_view(request, task_id):
                 action="rejected",
                 comment=comment
             )
+            # Уведомление исполнителю: выполнение возвращено на доработку
+            if base_task.assigned_employee and base_task.assigned_employee.user:
+                try:
+                    from .notifications import send_task_notification
+                    reviewer_name = effective_reviewer.full_name if effective_reviewer.full_name else effective_reviewer.user.get_full_name() or effective_reviewer.user.username
+                    send_task_notification(
+                        user=base_task.assigned_employee.user,
+                        title="Исполнение возвращено на доработку",
+                        body=f"{reviewer_name} вернул(-а) выполнение задачи «{base_task.title}» на доработку",
+                        task_id=base_task.id,
+                        notification_type='task.execution_rejected'
+                    )
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Ошибка отправки уведомления исполнителю об отклонении: {e}")
 
     from .serializers import TaskSerializer
     return Response(TaskSerializer(base_task).data)

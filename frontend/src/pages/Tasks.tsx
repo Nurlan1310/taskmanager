@@ -23,7 +23,9 @@ import {
   CheckCircle2,
   Circle,
   AlertCircle,
-  FileText
+  FileText,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
 import { formatDateTimeInAstanaTime, formatDateInAstanaTime } from '@/lib/dateUtils'
 
@@ -190,6 +192,7 @@ export default function Tasks() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null)
   const [showCardModal, setShowCardModal] = useState(false)
   const [cardSearchQuery, setCardSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
   const { query, setQuery } = useSearchStore()
   
   // Получаем текущего пользователя с полной информацией
@@ -249,6 +252,11 @@ export default function Tasks() {
     }
   }, [scopeFilter])
 
+  // Сбрасываем страницу при изменении фильтров
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [statusFilter, typeFilter, scopeFilter, selectedEmployeeId, query])
+
   // Получаем активные мероприятия для модального окна
   const { data: activeCards } = useQuery<EventCard[]>({
     queryKey: ['activeCards', 'forTaskCreation'],
@@ -273,18 +281,35 @@ export default function Tasks() {
     card.title.toLowerCase().includes(cardSearchQuery.toLowerCase())
   ) || []
 
-  const { data: tasks, isLoading, refetch } = useQuery<Task[]>({
-    queryKey: ['tasks', statusFilter, typeFilter, query, scopeFilter, selectedEmployeeId],
+  const { data: tasksData, isLoading, refetch } = useQuery<{
+    results: Task[]
+    count: number
+    next: string | null
+    previous: string | null
+  }>({
+    queryKey: ['tasks', statusFilter, typeFilter, query, scopeFilter, selectedEmployeeId, currentPage],
     queryFn: async () => {
       const params = new URLSearchParams()
       params.append('scope', scopeFilter)
       if (statusFilter !== 'all') params.append('status', statusFilter)
-      // Фильтрация по типу задач теперь происходит на клиенте
       if (query) params.append('search', query)
       if (selectedEmployeeId) params.append('employee_id', selectedEmployeeId.toString())
+      params.append('page', currentPage.toString())
       
       const response = await api.get(`/tasks/?${params.toString()}`)
-      let allTasks = Array.isArray(response.data) ? response.data : (response.data.results || [])
+      
+      // Если ответ не пагинированный (старый формат), возвращаем как есть
+      if (Array.isArray(response.data)) {
+        return {
+          results: response.data,
+          count: response.data.length,
+          next: null,
+          previous: null,
+        }
+      }
+      
+      // Пагинированный ответ
+      let allTasks = response.data.results || []
       
       // Фильтр по статусу "Активные" - показываем только активные статусы
       if (statusFilter === 'all') {
@@ -294,14 +319,12 @@ export default function Tasks() {
       
       // Фильтр по типу задач
       if (typeFilter === 'normal') {
-        // Обычные задачи - исключаем approval, review и task_approval
         allTasks = allTasks.filter((task: Task) => 
           task.task_type !== 'approval' && 
           task.task_type !== 'review' && 
           task.task_type !== 'task_approval'
         )
       } else if (typeFilter === 'approval') {
-        // Согласования - показываем approval, review и task_approval
         allTasks = allTasks.filter((task: Task) => 
           task.task_type === 'approval' || 
           task.task_type === 'review' || 
@@ -309,9 +332,20 @@ export default function Tasks() {
         )
       }
       
-      return allTasks
+      return {
+        results: allTasks,
+        count: response.data.count || allTasks.length,
+        next: response.data.next,
+        previous: response.data.previous,
+      }
     },
   })
+
+  const tasks = tasksData?.results || []
+  const totalCount = tasksData?.count || 0
+  const hasNext = !!tasksData?.next
+  const hasPrevious = !!tasksData?.previous
+  const totalPages = Math.ceil(totalCount / 30)
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
@@ -369,7 +403,93 @@ export default function Tasks() {
 
       {/* Фильтры */}
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-4 space-y-3">
+          {/* Первая строка: Тип и Статус с переключателем страниц */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Фильтр по типу */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Тип:</span>
+                <div className="flex gap-1">
+                  <Button
+                    variant={typeFilter === 'all' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTypeFilter('all')}
+                    className="h-8 px-2 text-xs"
+                  >
+                    Все
+                  </Button>
+                  <Button
+                    variant={typeFilter === 'normal' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTypeFilter('normal')}
+                    className="h-8 px-2 text-xs"
+                  >
+                    Обычные
+                  </Button>
+                  <Button
+                    variant={typeFilter === 'approval' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTypeFilter('approval')}
+                    className="h-8 px-2 text-xs"
+                  >
+                    Согласования
+                  </Button>
+                </div>
+              </div>
+
+              {/* Фильтры по статусу */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Статус:</span>
+                <div className="flex flex-wrap gap-1">
+                  {statusColumns.map((col) => {
+                    const Icon = col.icon
+                    return (
+                      <Button
+                        key={col.id}
+                        variant={statusFilter === col.id ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setStatusFilter(col.id as any)}
+                        className="h-8 px-2 text-xs"
+                      >
+                        <Icon className="w-3 h-3 mr-1" />
+                        {col.label}
+                      </Button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Переключатель страниц справа */}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={!hasPrevious}
+                  className="h-8 px-2"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  Страница {currentPage} из {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={!hasNext}
+                  className="h-8 px-2"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Вторая строка: Фильтр (Мои, Отдел) и Сотрудник */}
           <div className="flex flex-wrap items-center gap-3">
             {/* Фильтр по области видимости */}
             <div className="flex items-center gap-2">
@@ -425,59 +545,6 @@ export default function Tasks() {
                 </Select>
               </div>
             )}
-
-            {/* Фильтр по типу */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Тип:</span>
-              <div className="flex gap-1">
-                <Button
-                  variant={typeFilter === 'all' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setTypeFilter('all')}
-                  className="h-8 px-2 text-xs"
-                >
-                  Все
-                </Button>
-                <Button
-                  variant={typeFilter === 'normal' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setTypeFilter('normal')}
-                  className="h-8 px-2 text-xs"
-                >
-                  Обычные
-                </Button>
-                <Button
-                  variant={typeFilter === 'approval' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setTypeFilter('approval')}
-                  className="h-8 px-2 text-xs"
-                >
-                  Согласования
-                </Button>
-              </div>
-            </div>
-
-            {/* Фильтры по статусу */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Статус:</span>
-              <div className="flex flex-wrap gap-1">
-                {statusColumns.map((col) => {
-                  const Icon = col.icon
-                  return (
-                    <Button
-                      key={col.id}
-                      variant={statusFilter === col.id ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setStatusFilter(col.id as any)}
-                      className="h-8 px-2 text-xs"
-                    >
-                      <Icon className="w-3 h-3 mr-1" />
-                      {col.label}
-                    </Button>
-                  )
-                })}
-              </div>
-            </div>
           </div>
         </CardContent>
       </Card>

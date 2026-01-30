@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
-import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import ruLocale from '@fullcalendar/core/locales/ru'
 import api from '@/lib/api'
@@ -17,7 +17,7 @@ import { formatDateTimeInAstanaTime } from '@/lib/dateUtils'
 type TaskScope = 'mine' | 'department' | 'all'
 
 export default function Calendar() {
-  const [_currentDate] = useState(new Date())
+  const navigate = useNavigate()
   const [scopeFilter, setScopeFilter] = useState<TaskScope>('mine')
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null)
 
@@ -70,46 +70,71 @@ export default function Calendar() {
     }
   }, [scopeFilter])
 
-  const { data: tasks } = useQuery<Task[]>({
+  const { data: tasks, isLoading: tasksLoading } = useQuery<Task[]>({
     queryKey: ['tasks', 'calendar', scopeFilter, selectedEmployeeId],
     queryFn: async () => {
       const params = new URLSearchParams()
       params.append('scope', scopeFilter)
+      params.append('include_done', 'true') // выполненные задачи (зелёные) в календаре
       if (selectedEmployeeId) params.append('employee_id', selectedEmployeeId.toString())
-      
+
       const response = await api.get(`/tasks/?${params.toString()}`)
       return Array.isArray(response.data) ? response.data : (response.data.results || [])
     },
   })
 
-  // Преобразуем задачи в события для календаря
-  const events = tasks?.map((task) => ({
-    id: task.id.toString(),
-    title: task.title,
-    start: task.due_date || task.created_at,
-    end: task.due_date || undefined,
-    backgroundColor: 
-      task.status === 'done' ? '#22c55e' :
-      task.status === 'in_progress' ? '#eab308' :
-      task.priority === 'urgent' ? '#ef4444' :
-      task.task_type === 'approval' || task.task_type === 'review' ? '#3b82f6' :
-      '#6b7280',
-    borderColor: 
-      task.status === 'done' ? '#16a34a' :
-      task.status === 'in_progress' ? '#ca8a04' :
-      task.priority === 'urgent' ? '#dc2626' :
-      task.task_type === 'approval' || task.task_type === 'review' ? '#2563eb' :
-      '#4b5563',
-    extendedProps: {
-      taskId: task.id,
-      status: task.status,
-      taskType: task.task_type,
+  // Преобразуем задачи в события для календаря (только месячный вид)
+  const now = new Date()
+  const todayStr = format(now, 'yyyy-MM-dd')
+  const isAgreementOrReview = (t: Task) =>
+    t.task_type === 'approval' || t.task_type === 'review' || t.task_type === 'task_approval'
+
+  const events = tasks?.map((task) => {
+    const due = task.due_date ? new Date(task.due_date) : null
+    const isOverdue = due && due < now && task.status !== 'done'
+    // Выполненные — в день completed_at; согласования/проверки — в сегодня; остальные — due_date или created_at
+    let start: string
+    if (task.status === 'done' && task.completed_at) {
+      start = task.completed_at
+    } else if (isAgreementOrReview(task)) {
+      start = `${todayStr}T12:00:00`
+    } else {
+      start = task.due_date || task.created_at
+    }
+    return {
+      id: task.id.toString(),
       title: task.title,
-      due_date: task.due_date,
-      created_by: task.created_by,
-      assigned_employee: task.assigned_employee,
-    },
-  })) || []
+      start,
+      end: task.status === 'done' ? undefined : (task.due_date || undefined),
+      backgroundColor:
+        task.status === 'done' ? '#22c55e' :
+        task.status === 'in_progress' ? '#eab308' :
+        task.priority === 'urgent' ? '#ef4444' :
+        isAgreementOrReview(task) ? '#3b82f6' :
+        '#6b7280',
+      borderColor:
+        task.status === 'done' ? '#16a34a' :
+        task.status === 'in_progress' ? '#ca8a04' :
+        task.priority === 'urgent' ? '#dc2626' :
+        isAgreementOrReview(task) ? '#2563eb' :
+        '#4b5563',
+      extendedProps: {
+        taskId: task.id,
+        status: task.status,
+        status_display: task.status_display,
+        taskType: task.task_type,
+        task_type_display: task.task_type_display,
+        priority: task.priority,
+        priority_display: task.priority_display,
+        title: task.title,
+        due_date: task.due_date,
+        completed_at: task.completed_at,
+        created_by: task.created_by,
+        assigned_employee: task.assigned_employee,
+        isOverdue,
+      },
+    }
+  }) || []
 
   // Очищаем все tooltip при изменении событий
   useEffect(() => {
@@ -124,34 +149,17 @@ export default function Calendar() {
     }
   }, [events])
 
-  // Функция для форматирования времени из даты
-  const formatTime = (dateStr: string | undefined) => {
-    if (!dateStr) return ''
-    try {
-      const date = new Date(dateStr)
-      return format(date, 'HH:mm')
-    } catch {
-      return ''
-    }
-  }
-
-  // Кастомное отображение события - только время
+  // В месяце — круг по цвету статуса
   const eventContent = (arg: any) => {
     try {
-      const timeStr = formatTime(arg.event.startStr)
-      // Для месячного и недельного вида показываем только время
-      if (arg.view.type === 'dayGridMonth' || arg.view.type === 'timeGridWeek') {
-        return {
-          html: `<div class="fc-event-time" style="font-weight: 500;">${timeStr}</div>`,
-        }
-      }
-      // Для дневного вида показываем название
+      const title = arg.event.title || 'Задача'
+      const bg = arg.event.backgroundColor || '#6b7280'
+      const border = arg.event.borderColor || '#4b5563'
       return {
-        html: `<div class="fc-event-title">${arg.event.title}</div>`,
+        html: `<div class="calendar-event-dot" style="background-color: ${bg}; border-color: ${border};" title="${title}"></div>`,
       }
     } catch (error) {
       console.error('Error in eventContent:', error)
-      // Возвращаем стандартное отображение при ошибке
       return undefined
     }
   }
@@ -185,24 +193,27 @@ export default function Calendar() {
     `
 
     // Формируем содержимое tooltip
-    let tooltipContent = `<div style="font-weight: 600; margin-bottom: 4px;">${taskData.title || 'Задача'}</div>`
-    
+    let tooltipContent = `<div style="font-weight: 600; margin-bottom: 6px;">${taskData.title || 'Задача'}</div>`
+    if (taskData.isOverdue) {
+      tooltipContent += `<div style="color: #fca5a5; margin-bottom: 4px; font-weight: 500;">Просрочено</div>`
+    }
     if (taskData.due_date) {
       tooltipContent += `<div style="margin-bottom: 2px;">Срок: ${formatDateTimeInAstanaTime(taskData.due_date)}</div>`
     }
-    
-    if (taskData.created_by) {
-      const creatorName = taskData.created_by?.full_name || ''
-      if (creatorName) {
-        tooltipContent += `<div style="margin-bottom: 2px;">От: ${creatorName}</div>`
-      }
+    if (taskData.status_display) {
+      tooltipContent += `<div style="margin-bottom: 2px;">Статус: ${taskData.status_display}</div>`
     }
-    
-    if (scopeFilter === 'department' && taskData.assigned_employee) {
-      const assigneeName = taskData.assigned_employee?.full_name || ''
-      if (assigneeName) {
-        tooltipContent += `<div>Исполнитель: ${assigneeName}</div>`
-      }
+    if (taskData.task_type_display) {
+      tooltipContent += `<div style="margin-bottom: 2px;">Тип: ${taskData.task_type_display}</div>`
+    }
+    if (taskData.priority_display && taskData.priority !== 'normal') {
+      tooltipContent += `<div style="margin-bottom: 2px;">Приоритет: ${taskData.priority_display}</div>`
+    }
+    if (taskData.created_by?.full_name) {
+      tooltipContent += `<div style="margin-bottom: 2px;">От: ${taskData.created_by.full_name}</div>`
+    }
+    if (taskData.assigned_employee?.full_name) {
+      tooltipContent += `<div>Исполнитель: ${taskData.assigned_employee.full_name}</div>`
     }
 
     tooltip.innerHTML = tooltipContent
@@ -308,7 +319,7 @@ export default function Calendar() {
   const handleEventClick = (arg: any) => {
     const taskId = arg.event.extendedProps.taskId
     if (taskId) {
-      window.location.href = `/tasks/${taskId}`
+      navigate(`/tasks/${taskId}`)
     }
   }
 
@@ -384,75 +395,69 @@ export default function Calendar() {
 
       <Card>
         <CardContent className="p-6">
-          <FullCalendar
-            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-            initialView="dayGridMonth"
-            headerToolbar={{
-              left: 'prev,next today',
-              center: 'title',
-              right: 'dayGridMonth,timeGridWeek,timeGridDay',
-            }}
-            events={events}
-            dateClick={handleDateClick}
-            eventClick={handleEventClick}
-            locale={ruLocale}
-            firstDay={1}
-            height="auto"
-            eventDisplay="block"
-            dayMaxEvents={3}
-            moreLinkClick="popover"
-            eventContent={eventContent}
-            eventDidMount={handleEventDidMount}
-            eventTimeFormat={{
-              hour: '2-digit',
-              minute: '2-digit',
-              meridiem: false,
-            }}
-            slotLabelFormat={{
-              hour: '2-digit',
-              minute: '2-digit',
-              meridiem: false,
-            }}
-            views={{
-              dayGridMonth: {
-                allDaySlot: false,
-              },
-              timeGridWeek: {
-                allDaySlot: false,
-                slotMinTime: '08:00:00',
-              },
-              timeGridDay: {
-                allDaySlot: false,
-                slotMinTime: '08:00:00',
-              },
-            }}
-          />
+          {tasksLoading ? (
+            <div className="flex items-center justify-center py-24 text-muted-foreground">
+              Загрузка календаря…
+            </div>
+          ) : (
+            <FullCalendar
+              plugins={[dayGridPlugin, interactionPlugin]}
+              initialView="dayGridMonth"
+              headerToolbar={{
+                left: 'prev,next today',
+                center: 'title',
+                right: '',
+              }}
+              buttonText={{ today: 'Сегодня' }}
+              events={events}
+              dateClick={handleDateClick}
+              eventClick={handleEventClick}
+              locale={ruLocale}
+              firstDay={1}
+              height="auto"
+              eventDisplay="block"
+              dayMaxEvents={12}
+              moreLinkClick="popover"
+              eventContent={eventContent}
+              eventDidMount={handleEventDidMount}
+              views={{
+                dayGridMonth: {
+                  allDaySlot: false,
+                },
+              }}
+            />
+          )}
+          {!tasksLoading && events.length === 0 && (
+            <p className="text-center text-sm text-muted-foreground py-6">
+              Нет задач на выбранный период. Измените фильтры или область видимости.
+            </p>
+          )}
         </CardContent>
       </Card>
 
-      {/* Легенда */}
+      {/* Легенда — цвета совпадают с событиями календаря */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-wrap gap-4 text-sm">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-green-500"></div>
-              <span>Выполненные</span>
+              <div className="w-3.5 h-3.5 rounded shrink-0" style={{ backgroundColor: '#22c55e', border: '1px solid #16a34a' }} />
+              <span className="text-muted-foreground">Выполненные</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-yellow-500"></div>
-              <span>В работе</span>
+              <div className="w-3.5 h-3.5 rounded shrink-0" style={{ backgroundColor: '#eab308', border: '1px solid #ca8a04' }} />
+              <span className="text-muted-foreground">В работе</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-red-500"></div>
-              <span>Срочные</span>
+              <div className="w-3.5 h-3.5 rounded shrink-0" style={{ backgroundColor: '#ef4444', border: '1px solid #dc2626' }} />
+              <span className="text-muted-foreground">Срочные</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-blue-500"></div>
-              <span>На согласовании</span>
+              <div className="w-3.5 h-3.5 rounded shrink-0" style={{ backgroundColor: '#3b82f6', border: '1px solid #2563eb' }} />
+              <span className="text-muted-foreground">Согласования и проверка</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-gray-500"></div>
-              <span>Остальные</span>
+              <div className="w-3.5 h-3.5 rounded shrink-0" style={{ backgroundColor: '#6b7280', border: '1px solid #4b5563' }} />
+              <span className="text-muted-foreground">Остальные</span>
             </div>
           </div>
         </CardContent>

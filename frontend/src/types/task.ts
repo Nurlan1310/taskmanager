@@ -36,6 +36,7 @@ export interface Task {
   priority_display?: string
   created_at: string
   due_date?: string
+  completed_at?: string
   created_by: Employee
   assigned_employee?: Employee
   assigned_department?: {

@@ -8,9 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ArrowLeft, Plus, Calendar, User, CheckCircle2, Upload, X, Clock, FileText, Filter, Circle, AlertCircle, Edit, BarChart3 } from 'lucide-react'
+import { ArrowLeft, Plus, Calendar, User, CheckCircle2, Upload, X, Clock, FileText, Filter, Circle, AlertCircle, Edit, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatDateInAstanaTime, formatDateTimeInAstanaTime } from '@/lib/dateUtils'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { TaskStatus, Employee } from '@/types/task'
 import { Select } from '@/components/ui/select'
 import { useAuthStore } from '@/store/authStore'
@@ -109,7 +109,14 @@ export default function CardDetail() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>('all')
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null)
-  
+  const [currentPage, setCurrentPage] = useState(1)
+  const TASKS_PER_PAGE = 30
+
+  // Сбрасываем страницу при изменении фильтров
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [statusFilter, typeFilter, scopeFilter, selectedEmployeeId])
+
   // Состояние для редактирования карточки
   const [editDescription, setEditDescription] = useState('')
   const [editStartDate, setEditStartDate] = useState('')
@@ -366,7 +373,7 @@ export default function CardDetail() {
                   <div className="text-sm">
                     <a
                       href={card.plan_file}
-                      target="_blank"
+                      download={card.plan_file || undefined}
                       rel="noopener noreferrer"
                       className="text-primary hover:underline flex items-center gap-2"
                     >
@@ -537,19 +544,158 @@ export default function CardDetail() {
         <CardContent>
           {/* Фильтры */}
           <Card className="mb-6">
-            <CardContent className="p-4">
+            <CardContent className="p-4 space-y-3">
+              {/* Первая строка: Тип и Статус с переключателем страниц */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Фильтр по типу */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Тип:</span>
+                    <div className="flex gap-1">
+                      <Button
+                        variant={typeFilter === 'all' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setTypeFilter('all')}
+                        className="h-8 px-2 text-xs"
+                      >
+                        Все
+                      </Button>
+                      <Button
+                        variant={typeFilter === 'normal' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setTypeFilter('normal')}
+                        className="h-8 px-2 text-xs"
+                      >
+                        Обычные
+                      </Button>
+                      <Button
+                        variant={typeFilter === 'approval' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setTypeFilter('approval')}
+                        className="h-8 px-2 text-xs"
+                      >
+                        Согласования
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Фильтры по статусу */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Статус:</span>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        variant={statusFilter === 'all' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setStatusFilter('all')}
+                        className="h-8 px-2 text-xs"
+                      >
+                        <Filter className="w-3 h-3 mr-1" />
+                        Активные
+                      </Button>
+                      <Button
+                        variant={statusFilter === 'new' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setStatusFilter('new')}
+                        className="h-8 px-2 text-xs"
+                      >
+                        <Circle className="w-3 h-3 mr-1" />
+                        Новые
+                      </Button>
+                      <Button
+                        variant={statusFilter === 'in_progress' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setStatusFilter('in_progress')}
+                        className="h-8 px-2 text-xs"
+                      >
+                        <Clock className="w-3 h-3 mr-1" />
+                        В работе
+                      </Button>
+                      <Button
+                        variant={statusFilter === 'under_review' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setStatusFilter('under_review')}
+                        className="h-8 px-2 text-xs"
+                      >
+                        <FileText className="w-3 h-3 mr-1" />
+                        На проверке
+                      </Button>
+                      <Button
+                        variant={statusFilter === 'done' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setStatusFilter('done')}
+                        className="h-8 px-2 text-xs"
+                      >
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                        Выполненные
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Переключатель страниц справа */}
+                {(() => {
+                  const filtered = (card?.tasks || []).filter((task: any) => {
+                    if (selectedEmployeeId) {
+                      if (task.assigned_employee?.id !== selectedEmployeeId &&
+                          !task.recipients?.some((r: Employee) => r.id === selectedEmployeeId)) return false
+                    } else {
+                      if (scopeFilter === 'mine') {
+                        if (task.assigned_employee?.id !== currentUser?.employee?.id &&
+                            !task.recipients?.some((r: Employee) => r.id === currentUser?.employee?.id)) return false
+                      } else if (scopeFilter === 'department') {
+                        if (userDepartmentId) {
+                          const ok = task.assigned_department?.id === userDepartmentId ||
+                            task.assigned_employee?.department?.id === userDepartmentId
+                          if (!ok) return false
+                        } else return false
+                      } else if (scopeFilter === 'all' && !canViewAll) return false
+                    }
+                    if (statusFilter === 'all') {
+                      if (!['new', 'in_progress', 'under_review', 'sent_for_review'].includes(task.status)) return false
+                    } else if (task.status !== statusFilter) return false
+                    if (typeFilter === 'approval') return task.task_type === 'approval' || task.task_type === 'review' || task.task_type === 'task_approval'
+                    if (typeFilter === 'normal') return task.task_type !== 'approval' && task.task_type !== 'review' && task.task_type !== 'task_approval'
+                    return true
+                  })
+                  const totalPages = Math.ceil(filtered.length / TASKS_PER_PAGE)
+                  if (totalPages <= 1) return null
+                  return (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage <= 1}
+                        className="h-8 px-2"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <span className="text-sm text-muted-foreground whitespace-nowrap">
+                        Страница {currentPage} из {totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage >= totalPages}
+                        className="h-8 px-2"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )
+                })()}
+              </div>
+
+              {/* Вторая строка: Фильтр (Мои, Отдел) и Сотрудник */}
               <div className="flex flex-wrap items-center gap-3">
-                {/* Фильтр по области видимости */}
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Фильтр:</span>
                   <div className="flex gap-1">
                     <Button
                       variant={scopeFilter === 'mine' ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => {
-                        setScopeFilter('mine')
-                        setSelectedEmployeeId(null)
-                      }}
+                      onClick={() => { setScopeFilter('mine'); setSelectedEmployeeId(null) }}
                       className="h-8 px-2 text-xs"
                     >
                       <User className="w-3 h-3 mr-1" />
@@ -558,10 +704,7 @@ export default function CardDetail() {
                     <Button
                       variant={scopeFilter === 'department' ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => {
-                        setScopeFilter('department')
-                        setSelectedEmployeeId(null)
-                      }}
+                      onClick={() => { setScopeFilter('department'); setSelectedEmployeeId(null) }}
                       className="h-8 px-2 text-xs"
                     >
                       <Filter className="w-3 h-3 mr-1" />
@@ -571,10 +714,7 @@ export default function CardDetail() {
                       <Button
                         variant={scopeFilter === 'all' ? 'default' : 'outline'}
                         size="sm"
-                        onClick={() => {
-                          setScopeFilter('all')
-                          setSelectedEmployeeId(null)
-                        }}
+                        onClick={() => { setScopeFilter('all'); setSelectedEmployeeId(null) }}
                         className="h-8 px-2 text-xs"
                       >
                         Все
@@ -582,8 +722,6 @@ export default function CardDetail() {
                     )}
                   </div>
                 </div>
-
-                {/* Выбор сотрудника (для руководителя и директора) */}
                 {(isHead || canViewAll) && scopeFilter !== 'mine' && (
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Сотрудник:</span>
@@ -602,97 +740,15 @@ export default function CardDetail() {
                     </Select>
                   </div>
                 )}
-
-                {/* Фильтр по типу */}
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Тип:</span>
-                  <div className="flex gap-1">
-                    <Button
-                      variant={typeFilter === 'all' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setTypeFilter('all')}
-                      className="h-8 px-2 text-xs"
-                    >
-                      Все
-                    </Button>
-                    <Button
-                      variant={typeFilter === 'normal' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setTypeFilter('normal')}
-                      className="h-8 px-2 text-xs"
-                    >
-                      Обычные
-                    </Button>
-                    <Button
-                      variant={typeFilter === 'approval' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setTypeFilter('approval')}
-                      className="h-8 px-2 text-xs"
-                    >
-                      Согласования
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Фильтры по статусу */}
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Статус:</span>
-                  <div className="flex flex-wrap gap-1">
-                    <Button
-                      variant={statusFilter === 'all' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setStatusFilter('all')}
-                      className="h-8 px-2 text-xs"
-                    >
-                      <Filter className="w-3 h-3 mr-1" />
-                      Активные
-                    </Button>
-                    <Button
-                      variant={statusFilter === 'new' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setStatusFilter('new')}
-                      className="h-8 px-2 text-xs"
-                    >
-                      <Circle className="w-3 h-3 mr-1" />
-                      Новые
-                    </Button>
-                    <Button
-                      variant={statusFilter === 'in_progress' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setStatusFilter('in_progress')}
-                      className="h-8 px-2 text-xs"
-                    >
-                      <Clock className="w-3 h-3 mr-1" />
-                      В работе
-                    </Button>
-                    <Button
-                      variant={statusFilter === 'under_review' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setStatusFilter('under_review')}
-                      className="h-8 px-2 text-xs"
-                    >
-                      <FileText className="w-3 h-3 mr-1" />
-                      На проверке
-                    </Button>
-                    <Button
-                      variant={statusFilter === 'done' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setStatusFilter('done')}
-                      className="h-8 px-2 text-xs"
-                    >
-                      <CheckCircle2 className="w-3 h-3 mr-1" />
-                      Выполненные
-                    </Button>
-                  </div>
-                </div>
               </div>
             </CardContent>
           </Card>
 
           {card.tasks && card.tasks.length > 0 ? (
             <div className="space-y-3">
-              {card.tasks
-                .filter((task: any) => {
+              {(() => {
+                return card.tasks
+                  .filter((task: any) => {
                   // Фильтр по области видимости
                   if (selectedEmployeeId) {
                     // Если выбран конкретный сотрудник, показываем только его задачи
@@ -739,8 +795,8 @@ export default function CardDetail() {
                   }
                   // Фильтр по типу
                   if (typeFilter === 'approval') {
-                    // Показываем только задачи на согласование (approval и review)
-                    return task.task_type === 'approval' || task.task_type === 'review'
+                    // Согласования: approval, review, task_approval
+                    return task.task_type === 'approval' || task.task_type === 'review' || task.task_type === 'task_approval'
                   } else if (typeFilter === 'normal') {
                     // Показываем обычные задачи (исключаем approval и review)
                     return task.task_type !== 'approval' && task.task_type !== 'review'
@@ -748,6 +804,7 @@ export default function CardDetail() {
                   // typeFilter === 'all' - показываем все задачи
                   return true
                 })
+                .slice((currentPage - 1) * TASKS_PER_PAGE, currentPage * TASKS_PER_PAGE)
                 .map((task: any) => {
                   const isUrgent = task.due_date && new Date(task.due_date) <= new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
                   return (
@@ -767,9 +824,9 @@ export default function CardDetail() {
                                   Срочно
                                 </Badge>
                               )}
-                              {(task.task_type === 'approval' || task.task_type === 'review') && (
+                              {(task.task_type === 'approval' || task.task_type === 'review' || task.task_type === 'task_approval') && (
                                 <Badge variant="default" className="bg-blue-500">
-                                  {task.task_type === 'approval' ? 'Согласование' : 'Проверка'}
+                                  {task.task_type === 'approval' ? 'Согласование плана' : task.task_type === 'review' ? 'Проверка' : 'Согласование создания'}
                                 </Badge>
                               )}
                               <Badge className={statusColors[task.status as TaskStatus]}>
@@ -835,7 +892,7 @@ export default function CardDetail() {
                       </div>
                     </Link>
                   )
-                })}
+                })})()}
             </div>
           ) : (
             <div className="text-center py-8">
