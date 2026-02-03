@@ -58,6 +58,7 @@ interface EventCard {
   visible?: boolean
   is_active?: boolean
   current_approver_index?: number
+  shared_departments?: Array<{ id: number; name: string }>
   approvers?: Array<{
     id: number
     user: { first_name: string; last_name: string }
@@ -121,6 +122,8 @@ export default function CardDetail() {
   const [editDescription, setEditDescription] = useState('')
   const [editStartDate, setEditStartDate] = useState('')
   const [editEndDate, setEditEndDate] = useState('')
+  const [editSharedDepartmentsIds, setEditSharedDepartmentsIds] = useState<number[]>([])
+  const [editCategoriesIds, setEditCategoriesIds] = useState<number[]>([])
 
   const { data: card, isLoading } = useQuery<EventCard>({
     queryKey: ['card', id],
@@ -136,6 +139,30 @@ export default function CardDetail() {
       const response = await api.get('/auth/me/')
       return response.data
     },
+  })
+
+  const { data: departments } = useQuery({
+    queryKey: ['departments'],
+    queryFn: async () => {
+      const response = await api.get('/departments/')
+      const depts = Array.isArray(response.data) ? response.data : (response.data.results || [])
+      return depts.sort((a: any, b: any) => {
+        const priorityA = a.priority ?? 999
+        const priorityB = b.priority ?? 999
+        if (priorityA !== priorityB) return priorityA - priorityB
+        return a.name.localeCompare(b.name, 'ru')
+      })
+    },
+    enabled: showEditDialog,
+  })
+
+  const { data: categories } = useQuery({
+    queryKey: ['categories'],
+    queryFn: async () => {
+      const response = await api.get('/categories/')
+      return Array.isArray(response.data) ? response.data : (response.data.results || [])
+    },
+    enabled: showEditDialog,
   })
 
   // Проверяем права доступа
@@ -172,6 +199,7 @@ export default function CardDetail() {
   }) || []
 
   const isCreator = currentUser?.employee?.id === card?.created_by?.id
+  const canEdit = isCreator || canViewAll
   const canUploadCorrectedPlan = isCreator && card?.plan_status === 'rejected'
   
   // Инициализация данных для редактирования
@@ -186,7 +214,21 @@ export default function CardDetail() {
       } else {
         setEditEndDate('')
       }
+      setEditSharedDepartmentsIds(card.shared_departments?.map((d) => d.id) || [])
+      setEditCategoriesIds(card.categories?.map((c) => c.id) || [])
     }
+  }
+
+  const toggleEditSharedDepartment = (deptId: number) => {
+    setEditSharedDepartmentsIds((prev) =>
+      prev.includes(deptId) ? prev.filter((id) => id !== deptId) : [...prev, deptId]
+    )
+  }
+
+  const toggleEditCategory = (catId: number) => {
+    setEditCategoriesIds((prev) =>
+      prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
+    )
   }
   
   // Функция для форматирования даты в YYYY-MM-DD (локальное время)
@@ -199,7 +241,13 @@ export default function CardDetail() {
   
   // Мутация для обновления карточки
   const updateCardMutation = useMutation({
-    mutationFn: async (data: { description?: string; start_date?: string; end_date?: string | null }) => {
+    mutationFn: async (data: {
+      description?: string
+      start_date?: string
+      end_date?: string | null
+      shared_departments_ids?: number[]
+      categories_ids?: number[]
+    }) => {
       return api.patch(`/cards/${id}/`, data)
     },
     onSuccess: () => {
@@ -224,11 +272,13 @@ export default function CardDetail() {
       alert('Необходимо указать дату начала')
       return
     }
-    
+
     updateCardMutation.mutate({
       description: editDescription,
       start_date: editStartDate,
       end_date: editEndDate || null,
+      shared_departments_ids: editSharedDepartmentsIds,
+      categories_ids: editCategoriesIds,
     })
   }
   
@@ -509,7 +559,7 @@ export default function CardDetail() {
               </div>
               
               {/* Кнопка "Редактировать" (только для создателя) */}
-              {isCreator && (
+              {canEdit && (
                 <Button 
                   variant="outline"
                   className="w-full"
@@ -1257,7 +1307,7 @@ export default function CardDetail() {
                   required
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="edit-end-date">Дата окончания</Label>
                 <Input
@@ -1268,7 +1318,71 @@ export default function CardDetail() {
                 />
               </div>
             </div>
-            
+
+            <div className="space-y-2">
+              <Label>Категории</Label>
+              <div className="flex flex-wrap gap-2 min-h-[40px] p-2 border rounded-md">
+                {categories?.length ? (
+                  categories.map((cat: { id: number; name: string }) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => toggleEditCategory(cat.id)}
+                      className={`px-3 py-1 rounded-full text-sm border transition-colors ${
+                        editCategoriesIds.includes(cat.id)
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background hover:bg-accent'
+                      }`}
+                    >
+                      {cat.name}
+                    </button>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted-foreground">Нет категорий</span>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Смежные отделы</Label>
+              <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+                {editSharedDepartmentsIds.length ? (
+                  editSharedDepartmentsIds.map((id) => {
+                    const dept = departments?.find((d: any) => d.id === id)
+                    return (
+                      <span key={id} className="px-2 py-1 bg-secondary rounded-full text-secondary-foreground">
+                        {dept?.name || `Отдел ${id}`}
+                      </span>
+                    )
+                  })
+                ) : (
+                  <span>Не выбрано</span>
+                )}
+              </div>
+              <div className="border rounded-md max-h-48 overflow-y-auto p-2">
+                <div className="flex flex-wrap gap-2">
+                  {departments?.length ? (
+                    departments.map((dept: { id: number; name: string }) => (
+                      <button
+                        key={dept.id}
+                        type="button"
+                        onClick={() => toggleEditSharedDepartment(dept.id)}
+                        className={`px-3 py-1 rounded-full text-sm border transition-colors ${
+                          editSharedDepartmentsIds.includes(dept.id)
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-background hover:bg-accent'
+                        }`}
+                      >
+                        {dept.name}
+                      </button>
+                    ))
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Нет отделов</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2 pt-4">
               <Button
                 variant="outline"

@@ -355,9 +355,23 @@ class TaskViewSet(viewsets.ModelViewSet):
         scope = self.request.query_params.get('scope', 'mine')  # mine, department, all
         employee_id = self.request.query_params.get('employee_id')
         
-        # Поручения (assignments): задачи, созданные пользователем; опционально по исполнителю
+        # Поручения (assignments): задачи, созданные пользователем или перенаправленные им
         if scope == 'assignments':
-            queryset = Task.objects.filter(created_by=effective_employee)
+            if connection.vendor == 'postgresql':
+                queryset = Task.objects.filter(
+                    Q(created_by=effective_employee) |
+                    Q(redirect_chain__contains=[effective_employee.id])
+                )
+            else:
+                table = Task._meta.db_table
+                redirected_subquery = RawSQL(
+                    f"SELECT t.id FROM {table} t, json_each(t.redirect_chain) WHERE json_each.value = %s",
+                    [effective_employee.id],
+                )
+                queryset = Task.objects.filter(
+                    Q(created_by=effective_employee) |
+                    Q(id__in=redirected_subquery)
+                )
             if employee_id:
                 try:
                     filter_employee = Employee.objects.get(id=employee_id)
@@ -371,9 +385,8 @@ class TaskViewSet(viewsets.ModelViewSet):
                         # SQLite и др.: проверка вхождения в redirect_chain через raw SQL
                         table = Task._meta.db_table
                         subquery = RawSQL(
-                            f"SELECT t.id FROM {table} t, json_each(t.redirect_chain) "
-                            "WHERE json_each.value = %s AND t.created_by_id = %s",
-                            [filter_employee.id, effective_employee.id],
+                            f"SELECT t.id FROM {table} t, json_each(t.redirect_chain) WHERE json_each.value = %s",
+                            [filter_employee.id],
                         )
                         queryset = queryset.filter(
                             Q(assigned_employee=filter_employee) |
@@ -1275,6 +1288,16 @@ class EventCardViewSet(viewsets.ModelViewSet):
                 )
                 access_filter |= hidden_access
             
+            # Для страницы согласования плана: при retrieve разрешаем доступ к карточке,
+            # если у пользователя есть задача на согласование плана по этой карточке (руководитель другого отдела)
+            if self.action == 'retrieve':
+                approval_card_ids = Task.objects.filter(
+                    assigned_employee=effective_employee,
+                    task_type='approval',
+                    card__isnull=False
+                ).values_list('card_id', flat=True).distinct()
+                access_filter |= Q(id__in=approval_card_ids)
+            
             queryset = EventCard.objects.filter(access_filter).distinct()
 
         queryset = queryset.select_related(
@@ -1287,19 +1310,28 @@ class EventCardViewSet(viewsets.ModelViewSet):
             return queryset.order_by('-start_date')
 
         category = self.request.query_params.get('category')
-        include_all = self.request.query_params.get('include_all', 'false').lower() == 'true'
-        
+
         if category:
             queryset = queryset.filter(categories__slug=category)
-        elif not include_all:
-            # При фильтре "Все" (по умолчанию) исключаем карточки с категорией "внутренняя работа"
-            # Ищем категорию по названию (case-insensitive)
-            from .models import Category
-            internal_work_category = Category.objects.filter(
-                name__iexact='Внутренняя работа'
-            ).first()
-            if internal_work_category:
-                queryset = queryset.exclude(categories=internal_work_category)
+
+        # Фильтр по принадлежности: "Мой отдел" — ответственный или смежный
+        scope = self.request.query_params.get('scope', 'all')
+        if scope == 'my_department' and effective_employee.department:
+            queryset = queryset.filter(
+                Q(responsible_department=effective_employee.department) |
+                Q(shared_departments=effective_employee.department)
+            ).distinct()
+
+        # Для директора и заместителя: фильтр по отделу (карточки, где отдел — ответственный или смежный)
+        department_id = self.request.query_params.get('department_id')
+        if department_id and effective_employee.role in ('director', 'deputy'):
+            try:
+                dept = Department.objects.get(id=department_id)
+                queryset = queryset.filter(
+                    Q(responsible_department=dept) | Q(shared_departments=dept)
+                ).distinct()
+            except (Department.DoesNotExist, ValueError):
+                pass
 
         # Фильтрация по активности карточек
         archive = self.request.query_params.get('archive', 'false').lower() == 'true'
@@ -1416,6 +1448,26 @@ class EventCardViewSet(viewsets.ModelViewSet):
                     
                     card.current_approver_index = 0
                     card.save(update_fields=["current_approver_index"])
+
+    def perform_update(self, serializer):
+        """Только создатель, директор или заместитель могут редактировать мероприятие"""
+        card = serializer.instance
+        try:
+            employee = self.request.user.employee
+        except Employee.DoesNotExist:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('У вас нет прав на редактирование мероприятия')
+
+        effective_employee = employee.get_effective_employee()
+        can_edit = (
+            card.created_by == effective_employee or
+            effective_employee.role in ('director', 'deputy')
+        )
+        if not can_edit:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Редактирование доступно только создателю, директору или заместителю')
+
+        super().perform_update(serializer)
 
 
 class EmployeeViewSet(viewsets.ReadOnlyModelViewSet):
@@ -1899,6 +1951,90 @@ def redirect_task_view(request, task_id):
     return Response(TaskSerializer(task, context={'request': request}).data)
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def return_redirect_task_view(request, task_id):
+    """
+    Вернуть перенаправленную задачу себе (забрать у текущего исполнителя).
+    Доступно только тому, кто перенаправил задачу (redirected_by), и только если задача ещё не принята в работу (статус new).
+    """
+    from .models import TaskHistory
+    from django.shortcuts import get_object_or_404
+    from django.db import transaction
+
+    task = get_object_or_404(Task, id=task_id)
+    employee = request.user.employee
+
+    if task.redirected_by != employee:
+        return Response(
+            {'error': 'Вернуть задачу может только тот, кто её перенаправил'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    if task.status != 'new':
+        return Response(
+            {'error': 'Вернуть можно только задачу, которая ещё не принята в работу'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if task.task_type != 'regular':
+        return Response(
+            {'error': 'Вернуть можно только обычные задачи'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    previous_assignee = task.assigned_employee
+
+    with transaction.atomic():
+        # Убираем текущего пользователя (перенаправившего) из цепочки — задача возвращается ему
+        new_chain = list(task.redirect_chain)[:-1] if task.redirect_chain else []
+        new_redirected_by = None
+        if new_chain:
+            try:
+                new_redirected_by = Employee.objects.get(id=new_chain[-1])
+            except Employee.DoesNotExist:
+                pass
+
+        task.assigned_employee = employee
+        task.redirected_by = new_redirected_by
+        task.redirect_chain = new_chain
+        task.status = 'new'
+        task.save(update_fields=['assigned_employee', 'redirected_by', 'redirect_chain', 'status'])
+
+        task.recipients.clear()
+        task.recipients.add(employee)
+
+        TaskHistory.objects.create(
+            task=task,
+            employee=employee,
+            action='return_redirect',
+            comment=f'Задача возвращена от {previous_assignee.full_name} к {employee.full_name}'
+        )
+
+        try:
+            from .notifications import send_task_notification
+            redirector_name = employee.full_name or employee.user.get_full_name() or employee.user.username
+            if previous_assignee and previous_assignee.user:
+                send_task_notification(
+                    user=previous_assignee.user,
+                    title='Задача возвращена',
+                    body=f'{redirector_name} вернул(-а) себе задачу «{task.title}»',
+                    task_id=task.id,
+                    notification_type='task.return_redirect'
+                )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f'Ошибка уведомления при возврате задачи: {e}')
+
+    task.refresh_from_db()
+    task = Task.objects.select_related(
+        'created_by', 'assigned_employee', 'assigned_department', 'card', 'redirected_by'
+    ).prefetch_related('recipients', 'history').get(id=task.id)
+
+    return Response(TaskSerializer(task, context={'request': request}).data)
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def categories_view(request):
@@ -2308,11 +2444,18 @@ def download_plan_file_view(request, card_id):
             access_filter |= hidden_access
         allowed_ids = EventCard.objects.filter(access_filter).distinct().values_list('id', flat=True)
 
+    # Дополнительно разрешаем скачивание, если у пользователя есть задача на согласование плана по этой карточке
     if card.id not in allowed_ids:
-        return Response(
-            {'error': 'Нет доступа к этой карточке'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        has_approval_task = Task.objects.filter(
+            card_id=card.id,
+            assigned_employee=effective_employee,
+            task_type='approval'
+        ).exists()
+        if not has_approval_task:
+            return Response(
+                {'error': 'Нет доступа к этой карточке'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
     if not card.plan_file:
         return Response(

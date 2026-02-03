@@ -152,6 +152,21 @@ export default function TaskDetail() {
     },
   })
 
+  const returnRedirectMutation = useMutation({
+    mutationFn: async () => {
+      return api.post(`/tasks/${id}/return-redirect/`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['task', id] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      toast.success('Задача возвращена вам')
+    },
+    onError: (error: any) => {
+      alert(error?.response?.data?.error || 'Ошибка при возврате задачи')
+    },
+  })
+
   const recallTaskMutation = useMutation({
     mutationFn: async () => {
       return api.post(`/tasks/${id}/recall/`)
@@ -248,11 +263,17 @@ export default function TaskDetail() {
   )
 
   // Проверяем, может ли пользователь перенаправить задачу
-  const canRedirect = isAssignedEmployee && 
+  const canRedirect = isAssignedEmployee &&
     task.task_type === 'regular' &&
-    currentUser?.employee?.role && 
+    currentUser?.employee?.role &&
     ['deputy', 'head'].includes(currentUser.employee.role) &&
     (task.status === 'new' || task.status === 'in_progress')
+
+  // Вернуть задачу себе может тот, кто её перенаправил (только если ещё не принята в работу)
+  const isRedirector = user?.employee?.id && task.redirected_by?.id === user.employee.id
+  const canReturnRedirect = isRedirector &&
+    task.task_type === 'regular' &&
+    task.status === 'new'
 
   // Проверяем, может ли создатель редактировать или отозвать задачу
   const isCreator = user?.employee?.id && task.created_by?.id === user.employee.id
@@ -543,6 +564,24 @@ export default function TaskDetail() {
                       <CheckCircle2 className="w-4 h-4 mr-2" />
                       Выполнить
                     </Link>
+                  </Button>
+                )}
+
+                {/* Вернуть задачу последнему перенаправившему (если ещё не принята в работу) */}
+                {/* Вернуть задачу себе (доступно тому, кто перенаправил, если задача ещё не принята) */}
+                {canReturnRedirect && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      if (window.confirm('Забрать задачу обратно к себе? Текущий исполнитель перестанет видеть её у себя.')) {
+                        returnRedirectMutation.mutate()
+                      }
+                    }}
+                    disabled={returnRedirectMutation.isPending}
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    {returnRedirectMutation.isPending ? 'Возврат...' : 'Вернуть'}
                   </Button>
                 )}
 

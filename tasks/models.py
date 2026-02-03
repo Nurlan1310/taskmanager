@@ -364,6 +364,7 @@ class TaskHistory(models.Model):
         ("under_review", "На проверке"),
         ("rejected", "Отклонена"),
         ("redirected", "Перенаправлена"),
+        ("return_redirect", "Возврат перенаправления"),
         ("executed", "Исполнена"),
         ("done", "Завершена"),
         ("execution_updated", "Обновлено выполнение"), # Добавлено, чтобы совпадало с views

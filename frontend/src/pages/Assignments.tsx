@@ -25,7 +25,8 @@ import {
   AlertCircle,
   FileText,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  XCircle
 } from 'lucide-react'
 import { formatDateTimeInAstanaTime, formatDateInAstanaTime } from '@/lib/dateUtils'
 
@@ -310,6 +311,7 @@ export default function Assignments() {
     { id: 'new', label: 'Новые', icon: Circle },
     { id: 'in_progress', label: 'В работе', icon: Clock },
     { id: 'under_review', label: 'На проверке', icon: FileText },
+    { id: 'rejected', label: 'Отклоненные', icon: XCircle },
     { id: 'done', label: 'Выполненные', icon: CheckCircle2 },
   ]
 

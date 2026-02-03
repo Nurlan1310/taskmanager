@@ -20,6 +20,7 @@ urlpatterns = [
     path('tasks/<int:task_id>/complete/', api_views.complete_task_view, name='api-complete-task'),
     path('tasks/<int:task_id>/execute/', api_views.execute_task_view, name='api-execute-task'),
     path('tasks/<int:task_id>/redirect/', api_views.redirect_task_view, name='api-redirect-task'),
+    path('tasks/<int:task_id>/return-redirect/', api_views.return_redirect_task_view, name='api-return-redirect-task'),
     path('categories/', api_views.categories_view, name='api-categories'),
     path('departments/', api_views.departments_view, name='api-departments'),
     path('tasks/<int:task_id>/attachments/', api_views.upload_task_attachment, name='api-upload-attachment'),

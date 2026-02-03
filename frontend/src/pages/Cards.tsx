@@ -49,9 +49,23 @@ interface Category {
   slug: string
 }
 
+type ScopeFilter = 'all' | 'my_department'
+
 export default function Cards() {
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedCategory = searchParams.get('category') || ''
+  const selectedScope = (searchParams.get('scope') as ScopeFilter) || 'all'
+  const selectedDepartmentId = searchParams.get('department') || ''
+
+  const { data: currentUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: async () => {
+      const response = await api.get('/auth/me/')
+      return response.data
+    },
+  })
+
+  const isDirectorOrDeputy = currentUser?.employee?.role === 'director' || currentUser?.employee?.role === 'deputy'
 
   const { data: categories } = useQuery<Category[]>({
     queryKey: ['categories'],
@@ -61,13 +75,30 @@ export default function Cards() {
     },
   })
 
-  const { data: cards, isLoading } = useQuery<EventCard[]>({
-    queryKey: ['cards', selectedCategory],
+  const { data: departments } = useQuery({
+    queryKey: ['departments'],
     queryFn: async () => {
-      const url = selectedCategory 
-        ? `/cards/?archive=false&category=${selectedCategory}`
-        : '/cards/?archive=false'
-      const response = await api.get(url)
+      const response = await api.get('/departments/')
+      const depts = Array.isArray(response.data) ? response.data : (response.data.results || [])
+      return depts.sort((a: any, b: any) => {
+        const pa = a.priority ?? 999
+        const pb = b.priority ?? 999
+        if (pa !== pb) return pa - pb
+        return (a.name || '').localeCompare(b.name || '', 'ru')
+      })
+    },
+    enabled: isDirectorOrDeputy,
+  })
+
+  const { data: cards, isLoading } = useQuery<EventCard[]>({
+    queryKey: ['cards', selectedCategory, selectedScope, selectedDepartmentId],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      params.set('archive', 'false')
+      if (selectedCategory) params.set('category', selectedCategory)
+      if (selectedScope === 'my_department') params.set('scope', 'my_department')
+      if (selectedDepartmentId && isDirectorOrDeputy) params.set('department_id', selectedDepartmentId)
+      const response = await api.get(`/cards/?${params.toString()}`)
       return Array.isArray(response.data) ? response.data : (response.data.results || [])
     },
   })
@@ -81,11 +112,24 @@ export default function Cards() {
   }
 
   const handleCategoryChange = (categorySlug: string) => {
-    if (categorySlug) {
-      setSearchParams({ category: categorySlug })
-    } else {
-      setSearchParams({})
-    }
+    const next = new URLSearchParams(searchParams)
+    if (categorySlug) next.set('category', categorySlug)
+    else next.delete('category')
+    setSearchParams(next)
+  }
+
+  const handleScopeChange = (scope: ScopeFilter) => {
+    const next = new URLSearchParams(searchParams)
+    if (scope === 'my_department') next.set('scope', 'my_department')
+    else next.delete('scope')
+    setSearchParams(next)
+  }
+
+  const handleDepartmentChange = (departmentId: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (departmentId) next.set('department', departmentId)
+    else next.delete('department')
+    setSearchParams(next)
   }
 
   return (
@@ -105,46 +149,52 @@ export default function Cards() {
         </Button>
       </div>
 
-      {/* Фильтр по категориям */}
-      {categories && categories.length > 0 && (
-        <div className="flex items-center gap-4">
-          <label className="text-sm font-medium">Категория:</label>
-          <Select
-            value={selectedCategory}
-            onChange={(e) => handleCategoryChange(e.target.value)}
-            className="w-64"
-          >
-            <option value="">Все</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.slug}>
-                {category.name}
-              </option>
-            ))}
-          </Select>
-          {(() => {
-            const internalCategory = categories.find(cat => 
-              cat.name.toLowerCase().includes('внутренн') || 
-              cat.slug.toLowerCase().includes('internal') ||
-              cat.slug.toLowerCase().includes('vnutrennyaya')
-            )
-            return internalCategory ? (
-              <Button
-                variant={selectedCategory === internalCategory.slug ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  if (selectedCategory === internalCategory.slug) {
-                    handleCategoryChange('')
-                  } else {
-                    handleCategoryChange(internalCategory.slug)
-                  }
-                }}
-              >
-                Внутренняя работа
-              </Button>
-            ) : null
-          })()}
-        </div>
-      )}
+      {/* Фильтры: категория и принадлежность */}
+      <div className="flex flex-wrap items-center gap-4">
+        {categories && categories.length > 0 && (
+          <>
+            <label className="text-sm font-medium">Категория:</label>
+            <Select
+              value={selectedCategory}
+              onChange={(e) => handleCategoryChange(e.target.value)}
+              className="w-64"
+            >
+              <option value="">Все</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.slug}>
+                  {category.name}
+                </option>
+              ))}
+            </Select>
+          </>
+        )}
+        <label className="text-sm font-medium">Принадлежность:</label>
+        <Select
+          value={selectedScope}
+          onChange={(e) => handleScopeChange((e.target.value || 'all') as ScopeFilter)}
+          className="w-40"
+        >
+          <option value="all">Все</option>
+          <option value="my_department">Мой отдел</option>
+        </Select>
+        {isDirectorOrDeputy && departments && departments.length > 0 && (
+          <>
+            <label className="text-sm font-medium">Отдел:</label>
+            <Select
+              value={selectedDepartmentId}
+              onChange={(e) => handleDepartmentChange(e.target.value || '')}
+              className="w-56"
+            >
+              <option value="">Все</option>
+              {departments.map((dept: { id: number; name: string }) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </Select>
+          </>
+        )}
+      </div>
 
       {cards && cards.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">

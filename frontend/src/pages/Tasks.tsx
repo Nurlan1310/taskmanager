@@ -25,7 +25,8 @@ import {
   AlertCircle,
   FileText,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  XCircle
 } from 'lucide-react'
 import { formatDateTimeInAstanaTime, formatDateInAstanaTime } from '@/lib/dateUtils'
 
@@ -311,9 +312,9 @@ export default function Tasks() {
       // Пагинированный ответ
       let allTasks = response.data.results || []
       
-      // Фильтр по статусу "Активные" - показываем только активные статусы
+      // Фильтр по статусу "Активные" - показываем только активные статусы (включая отклонённые)
       if (statusFilter === 'all') {
-        const activeStatuses: TaskStatus[] = ['new', 'in_progress', 'under_review', 'sent_for_review']
+        const activeStatuses: TaskStatus[] = ['new', 'in_progress', 'under_review', 'sent_for_review', 'rejected']
         allTasks = allTasks.filter((task: Task) => activeStatuses.includes(task.status))
       }
       
@@ -375,6 +376,7 @@ export default function Tasks() {
     { id: 'new', label: 'Новые', icon: Circle },
     { id: 'in_progress', label: 'В работе', icon: Clock },
     { id: 'under_review', label: 'На проверке', icon: FileText },
+    { id: 'rejected', label: 'Отклоненные', icon: XCircle },
     { id: 'done', label: 'Выполненные', icon: CheckCircle2 },
   ]
 
