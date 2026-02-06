@@ -148,7 +148,7 @@ function TaskItem({ task }: { task: Task }) {
                       </span>
                     </>
                   )}
-                  {(task.status === 'send_for_approve' || task.status === 'pending') && task.current_approver && (
+                  {(task.status === 'send_for_approve' || task.status === 'pending' || task.status === 'in_progress') && task.current_approver && (
                     <>
                       <span className="mx-1">|</span>
                       <User className="w-4 h-4" />

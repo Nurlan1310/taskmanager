@@ -88,6 +88,8 @@ class TaskSerializer(serializers.ModelSerializer):
     recipients = EmployeeSerializer(many=True, read_only=True)
     redirected_by = EmployeeSerializer(read_only=True)
     redirect_chain_employees = serializers.SerializerMethodField()
+    approval_chain = serializers.SerializerMethodField()
+    review_chain = serializers.SerializerMethodField()
     
     # 🔥 НОВОЕ: Умные поля для ФИО и Отдела (убираем "Без отдела")
     assigned_employee_name = serializers.SerializerMethodField()
@@ -117,11 +119,6 @@ class TaskSerializer(serializers.ModelSerializer):
     
     # Поля согласования создания
     is_according_to_plan = serializers.BooleanField(required=False)
-    creation_approval_chain = serializers.ListField(
-        child=serializers.IntegerField(),
-        read_only=True,
-    )
-    current_approval_index = serializers.IntegerField(read_only=True, allow_null=True)
     parent_task_id = serializers.IntegerField(source='parent_task.id', read_only=True, allow_null=True)
     relation_type = serializers.CharField(read_only=True)
 
@@ -130,13 +127,16 @@ class TaskSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'status', 'status_display', 
             'task_type', 'task_type_display', 'priority', 'priority_display', 'is_urgent',
-            'is_according_to_plan', 'creation_approval_chain', 'current_approval_index',
+            'is_according_to_plan',
             'parent_task_id', 'relation_type',
             'created_at', 'due_date', 'completed_at', 'created_by', 'created_by_name',
             'assigned_employee', 'assigned_employee_id', 'assigned_employee_name',
             'assigned_department', 'assigned_department_id', 'assigned_department_name',
             'recipients', 'recipients_ids', 'card', 'card_title',
-            'google_drive_link', 'review_comment', 'history', 'attachments', 'redirected_by', 'redirect_chain', 'redirect_chain_employees', 'current_reviewer', 'current_approver'
+            'google_drive_link', 'review_comment', 'history', 'attachments', 
+            'redirected_by', 'redirect_chain_employees',
+            'approval_chain', 'review_chain', 
+            'current_reviewer', 'current_approver'
         ]
         read_only_fields = ['created_at', 'completed_at']
 
@@ -161,56 +161,65 @@ class TaskSerializer(serializers.ModelSerializer):
     def get_attachments(self, obj):
         return TaskAttachmentSerializer(obj.attachments.all(), many=True).data
     
-    def get_redirect_chain_employees(self, obj):
-        """Возвращает список сотрудников из цепочки перенаправлений в порядке перенаправления"""
-        if not obj.redirect_chain:
-            return []
-        # Получаем сотрудников по ID из цепочки, сохраняя порядок из списка
-        redirect_employees_dict = {
-            emp.id: EmployeeSerializer(emp).data 
-            for emp in Employee.objects.filter(id__in=obj.redirect_chain)
-        }
-        # Возвращаем список в порядке из redirect_chain
+    def get_approval_chain(self, obj):
+        """Возвращает цепочку согласования создания задачи"""
         return [
-            redirect_employees_dict[emp_id] 
-            for emp_id in obj.redirect_chain 
-            if emp_id in redirect_employees_dict
+            {
+                'id': ac.approver.id,
+                'name': ac.approver.full_name,
+                'status': ac.status,
+                'approved_at': ac.approved_at,
+                'rejection_reason': ac.rejection_reason,
+            }
+            for ac in obj.approval_chain.all().order_by('order')
         ]
+    
+    def get_review_chain(self, obj):
+        """Возвращает цепочку проверяющих при проверке выполнения"""
+        return [
+            {
+                'id': rc.reviewer.id,
+                'name': rc.reviewer.full_name,
+                'status': rc.status,
+                'reviewed_at': rc.reviewed_at,
+                'review_comment': rc.review_comment,
+            }
+            for rc in obj.review_chain.all().order_by('order')
+        ]
+    
+    def get_redirect_chain_employees(self, obj):
+        """Возвращает список сотрудников, которые перенаправили задачу (в порядке перенаправления)"""
+        employees = []
+        seen_ids = set()
+        
+        for rc in obj.redirect_chain.all().order_by('order'):
+            from_emp = rc.from_employee
+            if from_emp.id not in seen_ids:
+                employees.append({
+                    'id': from_emp.id,
+                    'full_name': from_emp.full_name,
+                })
+                seen_ids.add(from_emp.id)
+        
+        return employees
     
     current_reviewer = serializers.SerializerMethodField()
     current_approver = serializers.SerializerMethodField()
     
     def get_current_reviewer(self, obj):
-        """Возвращает текущего проверяющего для задачи в статусе sent_for_review или under_review"""
-        if obj.status not in ('sent_for_review', 'under_review'):
-            return None
-        
-        # Ищем активную задачу на проверку для этой задачи
-        review_task = Task.objects.filter(
-            parent_task=obj,  # ✅ Искать через parent_task
-            task_type="review",
-            status__in=('new', 'in_progress'),
-            relation_type='execution_review'  # ✅ И по типу связи
-        ).select_related('assigned_employee').order_by("-created_at").first()
-        
-        if review_task and review_task.assigned_employee:
-            return EmployeeSerializer(review_task.assigned_employee).data
+        """Возвращает текущего проверяющего из цепочки review_chain"""
+        # Показываем проверяющего если есть pending записи в цепочке (независимо от статуса)
+        current_review = obj.get_current_reviewer()
+        if current_review and current_review.reviewer:
+            return EmployeeSerializer(current_review.reviewer).data
         return None
     
     def get_current_approver(self, obj):
-        """Возвращает текущего согласующего для задачи в статусе send_for_approve"""
-        if obj.status != 'send_for_approve':
-            return None
-        
-        # Ищем активную задачу на согласование создания для этой задачи
-        approval_task = Task.objects.filter(
-            parent_task=obj,
-            task_type="task_approval",
-            status__in=('new', 'in_progress')
-        ).select_related('assigned_employee').order_by("-created_at").first()
-        
-        if approval_task and approval_task.assigned_employee:
-            return EmployeeSerializer(approval_task.assigned_employee).data
+        """Возвращает текущего согласующего из цепочки approval_chain"""
+        # Показываем согласующего если есть pending записи в цепочке (независимо от статуса)
+        current_approval = obj.get_current_approver()
+        if current_approval and current_approval.approver:
+            return EmployeeSerializer(current_approval.approver).data
         return None
 
     # Логика создания (сохранена полностью как у твоего друга)
@@ -218,6 +227,12 @@ class TaskSerializer(serializers.ModelSerializer):
         recipients = validated_data.pop('recipients', [])
         # Удаляем google_drive_link из validated_data, так как он будет обработан в api_views для создания TaskAttachment
         validated_data.pop('google_drive_link', None)
+        # Удаляем удалённые JSON поля если они случайно передались
+        validated_data.pop('creation_approval_chain', None)
+        validated_data.pop('current_approval_index', None)
+        validated_data.pop('reviewers_chain', None)
+        validated_data.pop('redirect_chain', None)
+        
         if 'created_by' not in validated_data:
             raise serializers.ValidationError({'created_by': 'Поле created_by обязательно.'})
         

@@ -286,25 +286,12 @@ class Task(models.Model):
     assigned_department = models.ForeignKey('Department', on_delete=models.SET_NULL, null=True, blank=True, related_name="tasks")
     assigned_employee = models.ForeignKey('Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="tasks")
     redirected_by = models.ForeignKey('Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="redirected_tasks", verbose_name="Перенаправлена от")
-    redirect_chain = models.JSONField(default=list, blank=True, verbose_name="Цепочка перенаправлений", help_text="Список ID сотрудников в порядке перенаправления задачи")
-    reviewers_chain = models.JSONField(default=list, blank=True, verbose_name="Цепочка проверяющих", help_text="Список ID сотрудников в порядке проверки выполнения задачи")
     
     # Согласование создания задачи
     is_according_to_plan = models.BooleanField(
         default=True,
         verbose_name="Согласно плана",
         help_text="Флаг, создана ли задача согласно плана",
-    )
-    creation_approval_chain = models.JSONField(
-        default=list,
-        blank=True,
-        verbose_name="Цепочка согласования создания",
-        help_text="Список ID сотрудников в порядке согласования создания задачи",
-    )
-    current_approval_index = models.IntegerField(
-        null=True,
-        blank=True,
-        verbose_name="Текущий индекс согласующего по созданию",
     )
     
     # Связь с другими задачами (для согласования создания и проверки выполнения)
@@ -353,6 +340,131 @@ class Task(models.Model):
             self.due_date.date() <= timezone.now().date() + timedelta(days=3)
             and self.status in ["new", "in_progress"]
         )
+    
+    # ============================================================
+    # 🔥 НОВЫЕ HELPER МЕТОДЫ для работы с цепочками согласования
+    # ============================================================
+    
+    def get_current_approver(self):
+        """Получить текущего согласующего (первого из ожидающих)"""
+        return self.approval_chain.filter(status='pending').order_by('order').first()
+    
+    def get_next_approver(self):
+        """Получить следующего согласующего после текущего"""
+        current = self.get_current_approver()
+        if not current:
+            return None
+        return self.approval_chain.filter(
+            order__gt=current.order,
+            status='pending'
+        ).order_by('order').first()
+    
+    def get_pending_approvers(self):
+        """Получить всех ожидающих согласующих"""
+        return self.approval_chain.filter(status='pending').order_by('order')
+    
+    def get_approval_chain_display(self):
+        """Получить цепочку в виде [{id, name, status, approved_at}, ...]"""
+        return [
+            {
+                'id': ac.approver.id,
+                'name': ac.approver.full_name,
+                'status': ac.status,
+                'approved_at': ac.approved_at,
+                'rejection_reason': ac.rejection_reason,
+            }
+            for ac in self.approval_chain.all()
+        ]
+    
+    def get_current_reviewer(self):
+        """Получить текущего проверяющего"""
+        return self.review_chain.filter(status='pending').order_by('order').first()
+    
+    def get_review_chain_display(self):
+        """Получить цепочку проверяющих"""
+        return [
+            {
+                'id': rc.reviewer.id,
+                'name': rc.reviewer.full_name,
+                'status': rc.status,
+                'reviewed_at': rc.reviewed_at,
+                'review_comment': rc.review_comment,
+            }
+            for rc in self.review_chain.all()
+        ]
+    
+    def get_redirect_chain_display(self):
+        """Получить цепочку перенаправлений"""
+        return [
+            {
+                'from_id': rc.from_employee.id,
+                'from_name': rc.from_employee.full_name,
+                'to_id': rc.to_employee.id,
+                'to_name': rc.to_employee.full_name,
+                'redirected_at': rc.redirected_at,
+                'reason': rc.reason,
+            }
+            for rc in self.redirect_chain.all()
+        ]
+    
+    def add_to_approval_chain(self, approver, order=None):
+        """Добавить согласующего в цепочку"""
+        if order is None:
+            # Получить максимальный порядок + 1
+            max_order = self.approval_chain.aggregate(
+                max_order=models.Max('order')
+            )['max_order'] or 0
+            order = max_order + 1
+        
+        return self.approval_chain.create(
+            approver=approver,
+            order=order,
+            status='pending'
+        )
+    
+    def add_to_review_chain(self, reviewer, order=None):
+        """Добавить проверяющего в цепочку"""
+        if order is None:
+            max_order = self.review_chain.aggregate(
+                max_order=models.Max('order')
+            )['max_order'] or 0
+            order = max_order + 1
+        
+        return self.review_chain.create(
+            reviewer=reviewer,
+            order=order,
+            status='pending'
+        )
+    
+    def approve_by(self, employee):
+        """Одобрить согласованием текущего согласующего"""
+        current = self.get_current_approver()
+        if not current or current.approver != employee:
+            raise ValueError(f"Employee {employee} is not the current approver")
+        
+        current.status = 'approved'
+        current.approved_at = timezone.now()
+        current.save()
+        
+        # Если есть следующий согласующий - ждем его
+        # Если нет - задача может идти дальше
+        return current
+    
+    def reject_by(self, employee, reason=''):
+        """Отклонить согласование"""
+        current = self.get_current_approver()
+        if not current or current.approver != employee:
+            raise ValueError(f"Employee {employee} is not the current approver")
+        
+        current.status = 'rejected'
+        current.rejection_reason = reason
+        current.approved_at = timezone.now()
+        current.save()
+        
+        # Все остальные согласования отменяются
+        self.approval_chain.filter(status='pending').update(status='rejected')
+        
+        return current
 
 
 class TaskHistory(models.Model):
@@ -437,6 +549,108 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.user}: {self.message[:40]}"
+
+
+# =========================================================
+# 🔥 НОВЫЕ МОДЕЛИ: Нормализованные цепочки согласования
+# =========================================================
+
+class TaskApprovalChain(models.Model):
+    """
+    Цепочка согласующих при создании задачи (замена creation_approval_chain JSON)
+    """
+    APPROVAL_STATUS_CHOICES = [
+        ('pending', 'Ожидание'),
+        ('approved', 'Одобрено'),
+        ('rejected', 'Отклонено'),
+    ]
+    
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='approval_chain')
+    approver = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    order = models.PositiveIntegerField()
+    
+    status = models.CharField(
+        max_length=20,
+        choices=APPROVAL_STATUS_CHOICES,
+        default='pending'
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        ordering = ['order']
+        unique_together = ('task', 'order')
+        indexes = [
+            models.Index(fields=['task', 'status']),
+            models.Index(fields=['approver', 'status']),
+        ]
+    
+    def __str__(self):
+        return f"{self.task.title} → {self.approver.full_name} ({self.get_status_display()})"
+
+
+class TaskReviewChain(models.Model):
+    """
+    Цепочка проверяющих при проверке выполнения (замена reviewers_chain JSON)
+    """
+    REVIEW_STATUS_CHOICES = [
+        ('pending', 'Ожидание'),
+        ('approved', 'Одобрено'),
+        ('rejected', 'Отклонено'),
+    ]
+    
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='review_chain')
+    reviewer = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    order = models.PositiveIntegerField()
+    
+    status = models.CharField(
+        max_length=20,
+        choices=REVIEW_STATUS_CHOICES,
+        default='pending'
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_comment = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        ordering = ['order']
+        unique_together = ('task', 'order')
+        indexes = [
+            models.Index(fields=['task', 'status']),
+            models.Index(fields=['reviewer', 'status']),
+        ]
+    
+    def __str__(self):
+        return f"{self.task.title} → {self.reviewer.full_name} (Review: {self.get_status_display()})"
+
+
+class TaskRedirectChain(models.Model):
+    """
+    Цепочка перенаправлений между сотрудниками (замена redirect_chain JSON)
+    """
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='redirect_chain')
+    from_employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name='redirected_from'
+    )
+    to_employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name='redirected_to'
+    )
+    order = models.PositiveIntegerField()
+    redirected_at = models.DateTimeField(auto_now_add=True)
+    reason = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        ordering = ['order']
+        unique_together = ('task', 'order')
+        indexes = [
+            models.Index(fields=['from_employee', 'to_employee']),
+        ]
+    
+    def __str__(self):
+        return f"{self.task.title}: {self.from_employee.full_name} → {self.to_employee.full_name}"
 
 
 class FCMDevice(models.Model):

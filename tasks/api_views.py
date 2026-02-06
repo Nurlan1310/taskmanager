@@ -5,13 +5,16 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Max
 from django.db.models.expressions import RawSQL
 from django.db import connection
 from django.utils import timezone
 from datetime import timedelta, datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
-from .models import Task, EventCard, Employee, Category, Department, CardApproverOrder, TaskHistory, Notification
+from .models import (
+    Task, EventCard, Employee, Category, Department, CardApproverOrder, TaskHistory, Notification,
+    TaskApprovalChain, TaskReviewChain, TaskRedirectChain
+)
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.http import FileResponse
@@ -357,41 +360,21 @@ class TaskViewSet(viewsets.ModelViewSet):
         
         # Поручения (assignments): задачи, созданные пользователем или перенаправленные им
         if scope == 'assignments':
-            if connection.vendor == 'postgresql':
-                queryset = Task.objects.filter(
-                    Q(created_by=effective_employee) |
-                    Q(redirect_chain__contains=[effective_employee.id])
-                )
-            else:
-                table = Task._meta.db_table
-                redirected_subquery = RawSQL(
-                    f"SELECT t.id FROM {table} t, json_each(t.redirect_chain) WHERE json_each.value = %s",
-                    [effective_employee.id],
-                )
-                queryset = Task.objects.filter(
-                    Q(created_by=effective_employee) |
-                    Q(id__in=redirected_subquery)
-                )
+            # Используем новую модель TaskRedirectChain вместо JSON поля
+            queryset = Task.objects.filter(
+                Q(created_by=effective_employee) |
+                Q(redirect_chain__from_employee=effective_employee)
+            ).distinct()
+            
             if employee_id:
                 try:
                     filter_employee = Employee.objects.get(id=employee_id)
                     # Задачи, где выбранный сотрудник — исполнитель или в цепочке перенаправлений
-                    if connection.vendor == 'postgresql':
-                        queryset = queryset.filter(
-                            Q(assigned_employee=filter_employee) |
-                            Q(redirect_chain__contains=[filter_employee.id])
-                        )
-                    else:
-                        # SQLite и др.: проверка вхождения в redirect_chain через raw SQL
-                        table = Task._meta.db_table
-                        subquery = RawSQL(
-                            f"SELECT t.id FROM {table} t, json_each(t.redirect_chain) WHERE json_each.value = %s",
-                            [filter_employee.id],
-                        )
-                        queryset = queryset.filter(
-                            Q(assigned_employee=filter_employee) |
-                            Q(id__in=subquery)
-                        )
+                    queryset = queryset.filter(
+                        Q(assigned_employee=filter_employee) |
+                        Q(redirect_chain__from_employee=filter_employee) |
+                        Q(redirect_chain__to_employee=filter_employee)
+                    ).distinct()
                 except (Employee.DoesNotExist, ValueError):
                     queryset = Task.objects.none()
         # Если указан конкретный сотрудник для фильтрации (для scope != assignments)
@@ -772,21 +755,22 @@ class TaskViewSet(viewsets.ModelViewSet):
                     task_data['assigned_employee'] = recipient
                     task_data['is_according_to_plan'] = is_according_to_plan
                     
-                    # Определяем статус и цепочку согласования
+                    # Определяем статус в зависимости от согласующих
                     if approvers:
                         task_data['status'] = 'send_for_approve'
-                        task_data['creation_approval_chain'] = [a.id for a in approvers]
-                        task_data['current_approval_index'] = 0
                     else:
                         task_data['status'] = 'new'
-                        task_data['creation_approval_chain'] = []
-                        task_data['current_approval_index'] = None
                     
-                    # Создаем задачу
+                    # Создаем задачу БЕЗ JSON полей (они уже удалены)
                     task = Task.objects.create(**task_data)
                     
                     # Добавляем адресата в M2M
                     task.recipients.add(recipient)
+                    
+                    # Добавляем согласующих в цепочку (новый способ)
+                    if approvers:
+                        for order, approver in enumerate(approvers, 1):
+                            task.add_to_approval_chain(approver, order=order)
                     
                     # Создаем запись в истории
                     TaskHistory.objects.create(
@@ -908,17 +892,22 @@ class TaskViewSet(viewsets.ModelViewSet):
         
         validated_data['is_according_to_plan'] = is_according_to_plan
         
-        # Определяем статус и цепочку согласования
+        # Определяем статус и создаем цепочку согласования
         if approvers:
             validated_data['status'] = 'send_for_approve'
-            validated_data['creation_approval_chain'] = [a.id for a in approvers]
-            validated_data['current_approval_index'] = 0
         else:
             validated_data['status'] = 'new'
-            validated_data['creation_approval_chain'] = []
-            validated_data['current_approval_index'] = None
         
         task = serializer.save(created_by=employee, **validated_data)
+        
+        # Создаем записи в цепочке согласования
+        if approvers:
+            for order, approver in enumerate(approvers):
+                TaskApprovalChain.objects.create(
+                    task=task,
+                    approver=approver,
+                    order=order
+                )
         
         # Если есть recipients, устанавливаем их
         # Используем getlist() для QueryDict (FormData) или get() для обычного dict (JSON)
@@ -1116,11 +1105,11 @@ class TaskViewSet(viewsets.ModelViewSet):
             
             # Определяем цепочку согласующих (используем существующую или определяем новую)
             approvers = []
-            if instance.creation_approval_chain:
-                # Используем существующую цепочку, сохраняя порядок
-                approver_ids = instance.creation_approval_chain
-                approvers_dict = {emp.id: emp for emp in Employee.objects.filter(id__in=approver_ids)}
-                approvers = [approvers_dict[aid] for aid in approver_ids if aid in approvers_dict]
+            existing_chain = instance.approval_chain.all()
+            
+            if existing_chain.exists():
+                # Используем существующую цепочку
+                approvers = [ac.approver for ac in existing_chain.order_by('order')]
             else:
                 # Определяем новую цепочку на основе параметров задачи
                 approvers = self._determine_approvers(
@@ -1128,8 +1117,6 @@ class TaskViewSet(viewsets.ModelViewSet):
                     instance.is_according_to_plan,
                     None  # deputy_id не сохраняется в задаче, используем None
                 )
-                if approvers:
-                    instance.creation_approval_chain = [a.id for a in approvers]
             
             # Запускаем цепочку согласований
             if approvers:
@@ -1140,9 +1127,13 @@ class TaskViewSet(viewsets.ModelViewSet):
                     status__in=['new', 'in_progress']
                 ).delete()
                 
+                # Очищаем старую цепочку и создаем новую
+                instance.approval_chain.all().delete()
+                for order, approver in enumerate(approvers, 1):
+                    instance.add_to_approval_chain(approver, order=order)
+                
                 # Создаем задачу для первого согласующего
                 first_approver = approvers[0]
-                instance.current_approval_index = 0
                 
                 approval_task = Task.objects.create(
                     task_type='task_approval',
@@ -1171,7 +1162,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             else:
                 # Нет согласующих - просто меняем статус на new
                 instance.status = 'new'
-                instance.current_approval_index = None
+                instance.approval_chain.all().delete()
                 TaskHistory.objects.create(
                     task=instance,
                     employee=effective_employee,
@@ -1179,7 +1170,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                     comment='Задача отредактирована и готова к выполнению'
                 )
             
-            instance.save(update_fields=['status', 'creation_approval_chain', 'current_approval_index'])
+            instance.save()
             
             # Создаем запись в истории об изменениях
             if changed_fields:
@@ -1728,32 +1719,25 @@ def execute_task_view(request, task_id):
         # Определяем цепочку проверки:
         # Если задача была перенаправлена, проверка идет по цепочке перенаправлений (в обратном порядке), потом создателю
         # Иначе проверка идет только создателю
-        reviewers_chain = []
+        reviewers_list = []
         
         # Если есть цепочка перенаправлений, добавляем всех перенаправивших в обратном порядке
-        if task.redirect_chain:
-            # Получаем сотрудников по ID из цепочки, сохраняя порядок из списка
-            # Создаем словарь для быстрого доступа
-            redirect_employees_dict = {
-                emp.id: emp for emp in Employee.objects.filter(id__in=task.redirect_chain)
-            }
-            # Строим список в порядке из redirect_chain (последний перенаправивший проверяет первым)
-            redirect_employees = [
-                redirect_employees_dict[emp_id] 
-                for emp_id in reversed(task.redirect_chain) 
-                if emp_id in redirect_employees_dict
-            ]
-            reviewers_chain.extend(redirect_employees)
+        redirect_chain_entries = task.redirect_chain.all().order_by('order')
+        if redirect_chain_entries.exists():
+            # Добавляем в обратном порядке (последний перенаправивший проверяет первым)
+            for entry in reversed(list(redirect_chain_entries)):
+                reviewers_list.append(entry.from_employee)
         
         # В конце добавляем создателя задачи
-        reviewers_chain.append(task.created_by)
+        reviewers_list.append(task.created_by)
         
-        # Сохраняем цепочку проверяющих в задаче для последующего использования
-        task.reviewers_chain = [r.id for r in reviewers_chain]
-        task.save(update_fields=['reviewers_chain'])
+        # Создаем цепочку проверяющих в новой модели
+        task.review_chain.all().delete()  # Очищаем старую цепочку
+        for order, reviewer in enumerate(reviewers_list, 1):
+            task.add_to_review_chain(reviewer, order=order)
         
         # Ищем существующую задачу на проверку для первого проверяющего
-        first_reviewer = reviewers_chain[0]
+        first_reviewer = reviewers_list[0] if reviewers_list else None
         existing_review = (
             Task.objects.filter(
                 parent_task=task,
@@ -1763,9 +1747,9 @@ def execute_task_view(request, task_id):
             )
             .order_by("-created_at")
             .first()
-        )
+        ) if first_reviewer else None
         
-        if not existing_review or existing_review.status == "done":
+        if first_reviewer and (not existing_review or existing_review.status == "done"):
             # Создаем только первую задачу на проверку для первого проверяющего
             # Остальные задачи будут создаваться последовательно после утверждения предыдущей
             review_task = Task.objects.create(
@@ -1892,24 +1876,23 @@ def redirect_task_view(request, task_id):
     # Заместитель может перенаправить любому сотруднику (проверка не нужна)
     
     with transaction.atomic():
-        # Инициализируем цепочку перенаправлений, если её еще нет
-        if not task.redirect_chain:
-            task.redirect_chain = []
+        # Сохраняем информацию о перенаправлении в новую модель
+        order = task.redirect_chain.aggregate(max_order=Max('order'))['max_order'] or 0
+        order += 1
         
-        # Сохраняем предыдущего перенаправившего в цепочку перед обновлением
-        previous_redirector = task.redirected_by
-        if previous_redirector and previous_redirector.id not in task.redirect_chain:
-            task.redirect_chain.append(previous_redirector.id)
+        # Добавляем текущее перенаправление в цепочку
+        task.redirect_chain.create(
+            from_employee=employee,
+            to_employee=new_employee,
+            order=order,
+            reason=request.data.get('reason', '')
+        )
         
-        # Добавляем текущего перенаправившего в цепочку (если его там еще нет)
-        if employee.id not in task.redirect_chain:
-            task.redirect_chain.append(employee.id)
-        
-        # Сохраняем информацию о том, кто перенаправил (последний перенаправивший)
+        # Обновляем основные поля задачи
         task.redirected_by = employee
         task.assigned_employee = new_employee
         task.status = 'new'  # Задача становится новой для нового исполнителя
-        task.save(update_fields=['redirected_by', 'assigned_employee', 'status', 'redirect_chain'])
+        task.save(update_fields=['redirected_by', 'assigned_employee', 'status'])
         
         # Обновляем recipients
         task.recipients.clear()
@@ -1983,20 +1966,22 @@ def return_redirect_task_view(request, task_id):
     previous_assignee = task.assigned_employee
 
     with transaction.atomic():
-        # Убираем текущего пользователя (перенаправившего) из цепочки — задача возвращается ему
-        new_chain = list(task.redirect_chain)[:-1] if task.redirect_chain else []
-        new_redirected_by = None
-        if new_chain:
-            try:
-                new_redirected_by = Employee.objects.get(id=new_chain[-1])
-            except Employee.DoesNotExist:
-                pass
+        # Получаем цепочку перенаправлений и удаляем последнюю запись
+        redirect_chain = task.redirect_chain.all().order_by('-order')
+        if redirect_chain.exists():
+            last_redirect = redirect_chain.first()
+            last_redirect.delete()
+            
+            # Проверяем, есть ли еще перенаправления
+            remaining_redirect = task.redirect_chain.all().order_by('-order').first()
+            new_redirected_by = remaining_redirect.from_employee if remaining_redirect else None
+        else:
+            new_redirected_by = None
 
         task.assigned_employee = employee
         task.redirected_by = new_redirected_by
-        task.redirect_chain = new_chain
         task.status = 'new'
-        task.save(update_fields=['assigned_employee', 'redirected_by', 'redirect_chain', 'status'])
+        task.save(update_fields=['assigned_employee', 'redirected_by', 'status'])
 
         task.recipients.clear()
         task.recipients.add(employee)
@@ -2714,7 +2699,6 @@ def task_review_approve_view(request, task_id):
         )
 
     comment = request.data.get('comment', '').strip()
-
     with transaction.atomic():
         # Обновляем статусы
         review_task.status = "done"
@@ -2726,46 +2710,58 @@ def task_review_approve_view(request, task_id):
             comment=comment or "Проверка выполнена, задача утверждена."
         )
 
-        # Определяем цепочку проверяющих из сохраненной цепочки или пересчитываем
-        if base_task.reviewers_chain:
-            # Используем сохраненную цепочку
-            reviewers_dict = {
-                emp.id: emp for emp in Employee.objects.filter(id__in=base_task.reviewers_chain)
-            }
-            reviewers_chain = [
-                reviewers_dict[emp_id] 
-                for emp_id in base_task.reviewers_chain 
-                if emp_id in reviewers_dict
-            ]
+        # Находим текущего проверяющего в цепочке и отмечаем как одобрившего
+        review_entries = base_task.review_chain.all().order_by('order')
+        current_review_entry = review_entries.filter(reviewer=effective_reviewer, status='pending').first()
+        
+        if current_review_entry:
+            # Отмечаем текущего проверяющего как одобрившего
+            current_review_entry.status = 'approved'
+            current_review_entry.reviewed_at = timezone.now()
+            current_review_entry.review_comment = comment
+            current_review_entry.save(update_fields=['status', 'reviewed_at', 'review_comment'])
+        
+        # Ищем следующего проверяющего
+        next_review_entry = review_entries.filter(status='pending', order__gt=current_review_entry.order if current_review_entry else -1).first() if current_review_entry else review_entries.filter(status='pending').first()
+        
+        if next_review_entry:
+            # Есть еще проверяющие
+            next_reviewer = next_review_entry.reviewer
+            
+            # Проверяем, нет ли уже задачи на проверку для следующего проверяющего
+            existing_review = Task.objects.filter(
+                parent_task=base_task,
+                task_type="review",
+                assigned_employee=next_reviewer,
+                relation_type='execution_review'
+            ).exclude(id=review_task.id).order_by("-created_at").first()
+            
+            if not existing_review or existing_review.status == "done":
+                # Создаем новую задачу на проверку для следующего проверяющего
+                # Создатель - текущий проверяющий (не исполнитель!)
+                next_review_task = Task.objects.create(
+                    title=f"Проверить выполнение задачи «{base_task.title}»",
+                    description=(
+                        f"{review_task.description or ''}"
+                    ),
+                    card=base_task.card,
+                    assigned_employee=next_reviewer,
+                    created_by=effective_reviewer,  # Создатель - текущий проверяющий
+                    parent_task=base_task,
+                    relation_type='execution_review',
+                    task_type="review",
+                    status="new",
+                    priority="normal",
+                )
+                
+                TaskHistory.objects.create(
+                    task=base_task,
+                    employee=effective_reviewer,
+                    action='pending',
+                    comment=f'Проверка передана {next_reviewer.full_name}'
+                )
         else:
-            # Fallback: пересчитываем цепочку (для старых задач)
-            reviewers_chain = []
-            
-            # Если есть цепочка перенаправлений, добавляем всех перенаправивших в обратном порядке
-            if base_task.redirect_chain:
-                redirect_employees_dict = {
-                    emp.id: emp for emp in Employee.objects.filter(id__in=base_task.redirect_chain)
-                }
-                redirect_employees = [
-                    redirect_employees_dict[emp_id] 
-                    for emp_id in reversed(base_task.redirect_chain) 
-                    if emp_id in redirect_employees_dict
-                ]
-                reviewers_chain.extend(redirect_employees)
-            
-            # В конце добавляем создателя задачи
-            reviewers_chain.append(base_task.created_by)
-        
-        # Проверяем, является ли текущий проверяющий последним в цепочке
-        try:
-            current_reviewer_index = reviewers_chain.index(effective_reviewer)
-            is_last_reviewer = current_reviewer_index == len(reviewers_chain) - 1
-        except ValueError:
-            # Если проверяющий не найден в цепочке, считаем его последним
-            is_last_reviewer = True
-        
-        if is_last_reviewer:
-            # Если это последний проверяющий, завершаем исходную задачу
+            # Нет больше проверяющих - завершаем исходную задачу
             base_task.status = "done"
             base_task.review_comment = comment or "Задача утверждена без комментария."
             base_task.save(update_fields=["status", "review_comment"])
@@ -2791,62 +2787,6 @@ def task_review_approve_view(request, task_id):
                     import logging
                     logger = logging.getLogger(__name__)
                     logger.error(f"Ошибка отправки уведомления исполнителю об утверждении: {e}")
-        else:
-            # Если есть еще проверяющие, создаем задачу на проверку для следующего
-            next_reviewer_index = current_reviewer_index + 1
-            if next_reviewer_index < len(reviewers_chain):
-                next_reviewer = reviewers_chain[next_reviewer_index]
-                
-                # Проверяем, нет ли уже задачи на проверку для следующего проверяющего
-                existing_review = Task.objects.filter(
-                    parent_task=base_task,
-                    task_type="review",
-                    assigned_employee=next_reviewer,
-                    relation_type='execution_review'
-                ).exclude(id=review_task.id).order_by("-created_at").first()
-                
-                if not existing_review or existing_review.status == "done":
-                    # Создаем новую задачу на проверку для следующего проверяющего
-                    # Создатель - текущий проверяющий (не исполнитель!)
-                    next_review_task = Task.objects.create(
-                        title=f"Проверить выполнение задачи «{base_task.title}»",
-                        description=(
-                            f"Проверяющий {effective_reviewer.user.get_full_name() or effective_reviewer.user.username} "
-                            f"утвердил выполнение. Задача передана на проверку следующему проверяющему.\n\n"
-                            f"{review_task.description or ''}"
-                        ),
-                        card=base_task.card,
-                        assigned_employee=next_reviewer,
-                        created_by=effective_reviewer,  # Создатель - текущий проверяющий
-                        parent_task=base_task,
-                        relation_type='execution_review',
-                        task_type="review",
-                        status="new",
-                        priority="normal",
-                    )
-                    
-                    TaskHistory.objects.create(
-                        task=next_review_task,
-                        employee=effective_reviewer,
-                        action="created",
-                        comment=f"Создана задача для проверки выполнения. Проверяющий: {next_reviewer.full_name}."
-                    )
-                    #Отправляем уведомление следующему проверяющему TODO: Добавить уведомление
-                    if next_reviewer.user:
-                        try:
-                            from .notifications import send_task_notification
-                            next_reviewer_name = next_reviewer.full_name if next_reviewer.full_name else next_reviewer.user.get_full_name() or next_reviewer.user.username
-                            send_task_notification(
-                                user=next_reviewer.user,
-                                title="Новая задача на проверку",
-                                body=f"Задача «{base_task.title}» передана на проверку вам.",
-                                task_id=next_review_task.id,
-                                notification_type='task.review_created'
-                            )
-                        except Exception as e:
-                            import logging
-                            logger = logging.getLogger(__name__)
-                            logger.error(f"Ошибка отправки уведомления следующему проверяющему: {e}")
     
     from .serializers import TaskSerializer
     return Response(TaskSerializer(base_task).data if base_task else TaskSerializer(review_task).data)
@@ -3201,100 +3141,102 @@ def approve_creation_view(request, task_id):
         )
         
         # Проверяем, есть ли еще согласующие в цепочке
-        chain = main_task.creation_approval_chain or []
-        current_idx = main_task.current_approval_index or 0
+        chain_entries = main_task.approval_chain.all().order_by('order')
+        current_entry = chain_entries.filter(status='pending').first()
         
-        if current_idx + 1 < len(chain):
-            # Есть следующий согласующий
-            next_approver_id = chain[current_idx + 1]
-            try:
-                next_approver = Employee.objects.get(id=next_approver_id)
-            except Employee.DoesNotExist:
-                return Response(
-                    {'error': 'Следующий согласующий не найден'},
-                    status=status.HTTP_400_BAD_REQUEST
+        if current_entry:
+            # Отмечаем текущего согласующего как одобрившего
+            current_entry.status = 'approved'
+            current_entry.approved_at = timezone.now()
+            current_entry.save(update_fields=['status', 'approved_at'])
+            
+            # Ищем следующего согласующего
+            next_entry = chain_entries.filter(status='pending', order__gt=current_entry.order).first()
+            
+            if next_entry:
+                # Есть следующий согласующий
+                next_approver = next_entry.approver
+                
+                # Убеждаемся, что основная задача остается в статусе send_for_approve
+                if main_task.status != 'send_for_approve':
+                    main_task.status = 'send_for_approve'
+                    main_task.save(update_fields=['status'])
+                
+                # Создаем задачу для следующего согласующего
+                next_approval_task = Task.objects.create(
+                    task_type='task_approval',
+                    status='new',
+                    title=f"Согласование поручения: {main_task.title}",
+                    description=f"Требуется согласование поручения:\n{main_task.title}",
+                    created_by=main_task.created_by,
+                    assigned_employee=next_approver,
+                    parent_task=main_task,
+                    relation_type='creation_approval',
+                    card=main_task.card,
                 )
-            
-            # Создаем задачу для следующего согласующего
-            next_approval_task = Task.objects.create(
-                task_type='task_approval',
-                status='new',
-                title=f"Согласование поручения: {main_task.title}",
-                description=f"Требуется согласование поручения:\n{main_task.title}",
-                created_by=main_task.created_by,
-                assigned_employee=next_approver,
-                parent_task=main_task,
-                relation_type='creation_approval',
-                card=main_task.card,
-            )
-            
-            # Обновляем индекс
-            main_task.current_approval_index = current_idx + 1
-            main_task.save(update_fields=['current_approval_index'])
-            
-            TaskHistory.objects.create(
-                task=main_task,
-                employee=effective_employee,
-                action='pending',
-                comment=f'Задача передана на согласование ({next_approver.full_name})'
-            )
-            TaskHistory.objects.create(
-                task=next_approval_task,
-                employee=effective_employee,
-                action='created',
-                comment=f'Задача согласования создания создана'
-            )
-            
-            # Отправляем уведомление следующему согласующему
-            try:
-                from .notifications import send_task_notification
-                creator_name = main_task.created_by.full_name if main_task.created_by.full_name else main_task.created_by.user.get_full_name() or main_task.created_by.user.username
-                send_task_notification(
-                    user=next_approver.user,
-                    title="Требуется согласование",
-                    body=f"{creator_name} отправил(-а) вам поручение «{main_task.title}» на согласование",
-                    task_id=next_approval_task.id,
-                    notification_type='task.approval_required'
+                
+                TaskHistory.objects.create(
+                    task=main_task,
+                    employee=effective_employee,
+                    action='pending',
+                    comment=f'Задача передана на согласование ({next_approver.full_name})'
                 )
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Ошибка отправки уведомления следующему согласующему: {e}")
-        else:
-            # Согласование завершено
-            main_task.status = 'new'
-            main_task.current_approval_index = None
-            main_task.save(update_fields=['status', 'current_approval_index'])
-            
-            TaskHistory.objects.create(
-                task=main_task,
-                employee=effective_employee,
-                action='created',
-                comment='Создание задачи согласовано'
-            )
-            
-            # Отправляем уведомление автору задачи о завершении согласования
-            if main_task.created_by and main_task.created_by.user:
+                TaskHistory.objects.create(
+                    task=next_approval_task,
+                    employee=effective_employee,
+                    action='created',
+                    comment=f'Задача согласования создания создана'
+                )
+                
+                # Отправляем уведомление следующему согласующему
                 try:
                     from .notifications import send_task_notification
+                    creator_name = main_task.created_by.full_name if main_task.created_by.full_name else main_task.created_by.user.get_full_name() or main_task.created_by.user.username
                     send_task_notification(
-                        user=main_task.created_by.user,
-                        title="Поручение согласовано",
-                        body=f"Создание вашего поручения «{main_task.title}» согласовано",
-                        task_id=main_task.id,
-                        notification_type='task.approved'
+                        user=next_approver.user,
+                        title="Требуется согласование",
+                        body=f"{creator_name} отправил(-а) вам поручение «{main_task.title}» на согласование",
+                        task_id=next_approval_task.id,
+                        notification_type='task.approval_required'
                     )
                 except Exception as e:
                     import logging
                     logger = logging.getLogger(__name__)
-                    logger.error(f"Ошибка отправки уведомления автору о согласовании: {e}")
-            
-            # Закрываем все незавершенные задачи-согласования для этой задачи
-            Task.objects.filter(
-                parent_task=main_task,
-                task_type='task_approval',
-                status__in=['new', 'in_progress']
-            ).exclude(id=approval_task.id).update(status='done')
+                    logger.error(f"Ошибка отправки уведомления следующему согласующему: {e}")
+            else:
+                # Согласование завершено - все согласующие одобрили
+                main_task.status = 'new'
+                main_task.save(update_fields=['status'])
+                
+                TaskHistory.objects.create(
+                    task=main_task,
+                    employee=effective_employee,
+                    action='created',
+                    comment='Создание задачи согласовано'
+                )
+                
+                # Отправляем уведомление автору задачи о завершении согласования
+                if main_task.created_by and main_task.created_by.user:
+                    try:
+                        from .notifications import send_task_notification
+                        send_task_notification(
+                            user=main_task.created_by.user,
+                            title="Поручение согласовано",
+                            body=f"Создание вашего поручения «{main_task.title}» согласовано",
+                            task_id=main_task.id,
+                            notification_type='task.approved'
+                        )
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Ошибка отправки уведомления автору о согласовании: {e}")
+                
+                # Закрываем все незавершенные задачи-согласования для этой задачи
+                Task.objects.filter(
+                    parent_task=main_task,
+                    task_type='task_approval',
+                    status__in=['new', 'in_progress']
+                ).exclude(id=approval_task.id).update(status='done')
     
     return Response({
         'message': 'Создание задачи согласовано',
@@ -3320,7 +3262,7 @@ def recall_task_view(request, task_id):
     task = get_object_or_404(Task, id=task_id)
     
     # Проверяем, что задача в статусе send_for_approve или new (без цепочки согласующих)
-    has_approval_chain = task.creation_approval_chain and len(task.creation_approval_chain) > 0
+    has_approval_chain = task.approval_chain.exists()
     if task.status == 'send_for_approve':
         # Отзыв из send_for_approve - удаляем задачи на согласование
         should_delete_approval_tasks = True
@@ -3369,8 +3311,7 @@ def recall_task_view(request, task_id):
         
         # Меняем статус задачи на revision
         task.status = 'revision'
-        task.current_approval_index = None
-        task.save(update_fields=['status', 'current_approval_index'])
+        task.save(update_fields=['status'])
         
         TaskHistory.objects.create(
             task=task,
@@ -3526,8 +3467,7 @@ def reject_creation_view(request, task_id):
         
         # Основная задача переходит в статус "На пересмотрении"
         main_task.status = 'revision'
-        main_task.current_approval_index = None
-        main_task.save(update_fields=['status', 'current_approval_index'])
+        main_task.save(update_fields=['status'])
         
         TaskHistory.objects.create(
             task=main_task,
