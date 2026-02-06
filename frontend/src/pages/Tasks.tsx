@@ -26,7 +26,8 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
-  XCircle
+  XCircle,
+  ArrowRight
 } from 'lucide-react'
 import { formatDateTimeInAstanaTime, formatDateInAstanaTime } from '@/lib/dateUtils'
 
@@ -126,12 +127,20 @@ function TaskItem({ task }: { task: Task }) {
               {task.created_by && (
                 <div className="flex items-center gap-1 flex-wrap">
                   <User className="w-4 h-4" />
-                  <span>
+                  <span className="font-bold">
                     От: {task.created_by.full_name}
                   </span>
+                  {task.redirect_chain_employees && task.redirect_chain_employees.length > 0 && (
+                    <>
+                      <ArrowRight className="w-3 h-3" />
+                      <span className="text-muted-foreground">
+                        {task.redirect_chain_employees.map(emp => emp.full_name).join(' → ')}
+                      </span>
+                    </>
+                  )}
                   {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && (
                     <>
-                      <span className="mx-1">•</span>
+                      <span className="mx-1">|</span>
                       <User className="w-4 h-4" />
                       <span>
                         Проверяет: {task.current_reviewer.full_name}

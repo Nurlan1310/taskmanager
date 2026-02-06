@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ArrowLeft, Plus, Calendar, User, CheckCircle2, Upload, X, Clock, FileText, Filter, Circle, AlertCircle, Edit, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Plus, Calendar, User, CheckCircle2, Upload, X, Clock, FileText, Filter, Circle, AlertCircle, Edit, BarChart3, ChevronLeft, ChevronRight, ListTodo, Building, XCircle } from 'lucide-react'
 import { formatDateInAstanaTime, formatDateTimeInAstanaTime } from '@/lib/dateUtils'
 import { useState, useEffect } from 'react'
 import { TaskStatus, Employee } from '@/types/task'
@@ -95,7 +95,7 @@ const statusColors: Record<TaskStatus, string> = {
   send_for_approve: 'bg-indigo-500',
 }
 
-type TaskScope = 'mine' | 'department' | 'all'
+type TaskScope = 'mine' | 'department' | 'all' | 'delegations'
 type TaskTypeFilter = 'all' | 'normal' | 'approval'
 
 export default function CardDetail() {
@@ -669,6 +669,15 @@ export default function CardDetail() {
                         На проверке
                       </Button>
                       <Button
+                        variant={statusFilter === 'rejected' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setStatusFilter('rejected')}
+                        className="h-8 px-2 text-xs"
+                      >
+                        <XCircle className="w-3 h-3 mr-1" />
+                        Отклоненные
+                      </Button>
+                      <Button
                         variant={statusFilter === 'done' ? 'default' : 'outline'}
                         size="sm"
                         onClick={() => setStatusFilter('done')}
@@ -691,6 +700,10 @@ export default function CardDetail() {
                       if (scopeFilter === 'mine') {
                         if (task.assigned_employee?.id !== currentUser?.employee?.id &&
                             !task.recipients?.some((r: Employee) => r.id === currentUser?.employee?.id)) return false
+                      } else if (scopeFilter === 'delegations') {
+                        const isCreatedByMe = task.created_by?.id === currentUser?.employee?.id
+                        const isRedirectedByMe = task.redirect_chain_employees?.some((emp: any) => emp.id === currentUser?.employee?.id)
+                        if (!isCreatedByMe && !isRedirectedByMe) return false
                       } else if (scopeFilter === 'department') {
                         if (userDepartmentId) {
                           const ok = task.assigned_department?.id === userDepartmentId ||
@@ -700,7 +713,7 @@ export default function CardDetail() {
                       } else if (scopeFilter === 'all' && !canViewAll) return false
                     }
                     if (statusFilter === 'all') {
-                      if (!['new', 'in_progress', 'under_review', 'sent_for_review'].includes(task.status)) return false
+                      if (!['new', 'in_progress', 'under_review', 'sent_for_review', 'rejected'].includes(task.status)) return false
                     } else if (task.status !== statusFilter) return false
                     if (typeFilter === 'approval') return task.task_type === 'approval' || task.task_type === 'review' || task.task_type === 'task_approval'
                     if (typeFilter === 'normal') return task.task_type !== 'approval' && task.task_type !== 'review' && task.task_type !== 'task_approval'
@@ -756,8 +769,17 @@ export default function CardDetail() {
                       onClick={() => { setScopeFilter('department'); setSelectedEmployeeId(null) }}
                       className="h-8 px-2 text-xs"
                     >
-                      <Filter className="w-3 h-3 mr-1" />
+                      <Building className="w-3 h-3 mr-1" />
                       Отдел
+                    </Button>
+                    <Button
+                      variant={scopeFilter === 'delegations' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => { setScopeFilter('delegations'); setSelectedEmployeeId(null) }}
+                      className="h-8 px-2 text-xs"
+                    >
+                      <ListTodo className="w-3 h-3 mr-1" />
+                      Поручения
                     </Button>
                     {canViewAll && (
                       <Button
@@ -771,7 +793,7 @@ export default function CardDetail() {
                     )}
                   </div>
                 </div>
-                {(isHead || canViewAll) && scopeFilter !== 'mine' && (
+                {(isHead || canViewAll) && scopeFilter !== 'mine' && scopeFilter !== 'delegations' && (
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Сотрудник:</span>
                     <Select
@@ -813,6 +835,13 @@ export default function CardDetail() {
                           !task.recipients?.some((r: Employee) => r.id === currentUser?.employee?.id)) {
                         return false
                       }
+                    } else if (scopeFilter === 'delegations') {
+                      // Поручения - задачи которые я создал или перенаправил
+                      const isCreatedByMe = task.created_by?.id === currentUser?.employee?.id
+                      const isRedirectedByMe = task.redirect_chain_employees?.some((emp: any) => emp.id === currentUser?.employee?.id)
+                      if (!isCreatedByMe && !isRedirectedByMe) {
+                        return false
+                      }
                     } else if (scopeFilter === 'department') {
                       // Задачи моего отдела - задачи назначенные отделу или сотрудникам отдела
                       if (userDepartmentId) {
@@ -834,8 +863,8 @@ export default function CardDetail() {
 
                   // Фильтр по статусу
                   if (statusFilter === 'all') {
-                    // Активные: новые, в работе, на проверке, отправлена на проверку
-                    const activeStatuses: TaskStatus[] = ['new', 'in_progress', 'under_review', 'sent_for_review']
+                    // Активные: новые, в работе, на проверке, отправлена на проверку, отклоненные
+                    const activeStatuses: TaskStatus[] = ['new', 'in_progress', 'under_review', 'sent_for_review', 'rejected']
                     if (!activeStatuses.includes(task.status)) {
                       return false
                     }
@@ -901,9 +930,17 @@ export default function CardDetail() {
                                   <span>
                                     От: {task.created_by.full_name}
                                   </span>
+                                  {task.redirect_chain_employees && task.redirect_chain_employees.length > 0 && (
+                                    <>
+                                      <ArrowRight className="w-3 h-3" />
+                                      <span className="text-muted-foreground">
+                                        {task.redirect_chain_employees.map((emp: any) => emp.full_name).join(' → ')}
+                                      </span>
+                                    </>
+                                  )}
                                   {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && (
                                     <>
-                                      <span className="mx-1">•</span>
+                                      <span className="mx-1">|</span>
                                       <User className="w-4 h-4" />
                                       <span>
                                         Проверяет: {task.current_reviewer.full_name}

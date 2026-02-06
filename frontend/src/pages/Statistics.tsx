@@ -330,15 +330,16 @@ export default function Statistics() {
       </div>
       
       {/* Фильтры */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="w-5 h-5" />
-            Фильтры
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
+      <div className="sticky top-0 z-20 bg-background pb-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="w-5 h-5" />
+              Фильтры
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
             {/* Первая строка: Отдел и Сотрудник */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Отдел */}
@@ -471,19 +472,20 @@ export default function Statistics() {
               </div>
             </div>
             
-            {/* Кнопка применения */}
-            <div className="flex justify-end">
-              <Button 
-                onClick={handleApplyFilters}
-                disabled={isManualLoading || !dateFrom || !dateTo || (filterMode === 'event' && !selectedCardId)}
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${isManualLoading ? 'animate-spin' : ''}`} />
-                Применить фильтры
-              </Button>
+              {/* Кнопка применения */}
+              <div className="flex justify-end">
+                <Button 
+                  onClick={handleApplyFilters}
+                  disabled={isManualLoading || !dateFrom || !dateTo || (filterMode === 'event' && !selectedCardId)}
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${isManualLoading ? 'animate-spin' : ''}`} />
+                  Применить фильтры
+                </Button>
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
       
       {/* Период */}
       {statistics && (

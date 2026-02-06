@@ -338,7 +338,7 @@ export default function TaskDetail() {
                     <Calendar className="w-4 h-4" />
                     <span>Срок выполнения</span>
                   </div>
-                  <p className={isUrgent ? 'text-red-500 font-medium' : ''}>
+                  <p className={isUrgent && task.status !== 'done' ? 'text-red-500 font-medium' : ''}>
                     {formatDateTimeInAstanaTime(task.due_date)}
                   </p>
                 </div>
@@ -399,6 +399,8 @@ export default function TaskDetail() {
                 </div>
               )}
 
+              
+              
               {/* Проверяющий */}
               {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && (
                 <div>

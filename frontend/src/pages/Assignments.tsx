@@ -10,9 +10,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+// import { Select } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Task, TaskStatus, Employee } from '@/types/task'
+import SearchableSelect from '@/components/SearchableSelect'
 import { 
   Plus, 
   Filter, 
@@ -26,7 +27,8 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
-  XCircle
+  XCircle,
+  ArrowRight
 } from 'lucide-react'
 import { formatDateTimeInAstanaTime, formatDateInAstanaTime } from '@/lib/dateUtils'
 
@@ -129,12 +131,29 @@ function TaskItem({ task }: { task: Task }) {
                   <span>
                     От: {task.created_by.full_name}
                   </span>
+                  {task.redirect_chain_employees && task.redirect_chain_employees.length > 0 && (
+                    <>
+                      <ArrowRight className="w-3 h-3" />
+                      <span className="text-muted-foreground">
+                        {task.redirect_chain_employees.map(emp => emp.full_name).join(' → ')}
+                      </span>
+                    </>
+                  )}
                   {(task.status === 'sent_for_review' || task.status === 'under_review') && task.current_reviewer && (
                     <>
-                      <span className="mx-1">•</span>
+                      <span className="mx-1">|</span>
                       <User className="w-4 h-4" />
                       <span>
                         Проверяет: {task.current_reviewer.full_name}
+                      </span>
+                    </>
+                  )}
+                  {(task.status === 'send_for_approve' || task.status === 'pending') && task.current_approver && (
+                    <>
+                      <span className="mx-1">|</span>
+                      <User className="w-4 h-4" />
+                      <span>
+                        Согласует: {task.current_approver.full_name}
                       </span>
                     </>
                   )}
@@ -157,7 +176,7 @@ function TaskItem({ task }: { task: Task }) {
               {task.assigned_employee && (
                 <div className="flex items-center gap-1">
                   <User className="w-4 h-4" />
-                  <span>
+                  <span className="font-bold">
                     Исполнитель: {task.assigned_employee.full_name}
                   </span>
                 </div>
@@ -187,7 +206,7 @@ export default function Assignments() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
-  const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null)
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>('')
   const [currentPage, setCurrentPage] = useState(1)
   const [showCardModal, setShowCardModal] = useState(false)
   const [cardSearchQuery, setCardSearchQuery] = useState('')
@@ -211,7 +230,12 @@ export default function Assignments() {
     queryKey: ['employees'],
     queryFn: async () => {
       const response = await api.get('/employees/')
-      return Array.isArray(response.data) ? response.data : (response.data.results || [])
+      const allEmployees = Array.isArray(response.data)
+        ? response.data
+        : (response.data.results || [])
+
+      // Исключаем сотрудников без отдела
+      return allEmployees.filter((emp: Employee) => !!emp.department)
     },
   })
 
@@ -251,7 +275,7 @@ export default function Assignments() {
       params.append('scope', 'assignments')
       if (statusFilter !== 'all') params.append('status', statusFilter)
       if (query) params.append('search', query)
-      if (selectedAssigneeId) params.append('employee_id', selectedAssigneeId.toString())
+      if (selectedAssigneeId) params.append('employee_id', selectedAssigneeId)
       params.append('page', currentPage.toString())
 
       const response = await api.get(`/tasks/?${params.toString()}`)
@@ -396,19 +420,27 @@ export default function Assignments() {
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Исполнитель:</span>
-              <Select
-                value={selectedAssigneeId?.toString() ?? ''}
-                onChange={(e) => setSelectedAssigneeId(e.target.value ? parseInt(e.target.value, 10) : null)}
-                className="h-8 text-xs min-w-[180px]"
-              >
-                <option value="">Все</option>
-                {(employees ?? []).map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.full_name ?? ([emp.firstname, emp.lastname].filter(Boolean).join(' ') || `Сотрудник ${emp.id}`)}
-                    {emp.position ? ` (${emp.position})` : ''}
-                  </option>
-                ))}
-              </Select>
+              <div className="min-w-[320px]">
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Все сотрудники' },
+                    ...(employees ?? []).map((emp) => ({
+                      value: emp.id.toString(),
+                      label:
+                        emp.full_name ??
+                        ([emp.firstname, emp.lastname].filter(Boolean).join(' ') || `Сотрудник ${emp.id}`) +
+                        (emp.position ? ` (${emp.position})` : ''),
+                    })),
+                  ]}
+                  value={selectedAssigneeId}
+                  onChange={(value) => {
+                    setSelectedAssigneeId(value)
+                    setCurrentPage(1)
+                  }}
+                  placeholder="Все сотрудники"
+                  emptyText="Нет сотрудников"
+                />
+              </div>
             </div>
           </div>
         </CardContent>

@@ -186,12 +186,11 @@ class TaskSerializer(serializers.ModelSerializer):
             return None
         
         # Ищем активную задачу на проверку для этой задачи
-        import re
         review_task = Task.objects.filter(
-            card=obj.card,
+            parent_task=obj,  # ✅ Искать через parent_task
             task_type="review",
             status__in=('new', 'in_progress'),
-            description__icontains=f"[orig_task_id:{obj.id}]"
+            relation_type='execution_review'  # ✅ И по типу связи
         ).select_related('assigned_employee').order_by("-created_at").first()
         
         if review_task and review_task.assigned_employee:

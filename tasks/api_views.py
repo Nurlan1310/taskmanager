@@ -1148,7 +1148,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                     task_type='task_approval',
                     status='new',
                     title=f"Согласование создания задачи: {instance.title}",
-                    description=f"Требуется согласование создания задачи:\n\n{instance.title}\n\n{instance.description or ''}",
+                    description=f"Требуется согласование создания задачи:\n\n{instance.title}",
                     created_by=instance.created_by,
                     assigned_employee=first_approver,
                     parent_task=instance,
@@ -1422,7 +1422,7 @@ class EventCardViewSet(viewsets.ModelViewSet):
                     if not existing_task:
                         approval_task = Task.objects.create(
                             title=f"Утвердить план мероприятия «{card.title}»",
-                            description="План направлен напрямую утверждающему (без промежуточных согласующих).",
+                            description="Необходимо рассмотреть загруженный план и утвердить или отклонить.",
                             card=card,
                             assigned_employee=card.final_approver,
                             created_by=employee,
@@ -1770,10 +1770,7 @@ def execute_task_view(request, task_id):
             # Остальные задачи будут создаваться последовательно после утверждения предыдущей
             review_task = Task.objects.create(
                 title=f"Проверить выполнение задачи «{task.title}»",
-                description=(
-                    f"Исполнитель {employee.user.get_full_name() or employee.user.username} "
-                    f"отправил материалы на согласование.\n\n{description or ''}"
-                ),
+                description=description,
                 card=task.card,
                 assigned_employee=first_reviewer,
                 created_by=employee,
@@ -1818,7 +1815,7 @@ def execute_task_view(request, task_id):
                 task=existing_review,
                 employee=employee,
                 action="execution_updated",
-                comment="Исполнитель обновил выполнение, добавлены новые материалы."
+                comment="Исполнитель обновил выполнение."
             )
 
     return Response(TaskSerializer(task).data)
@@ -2205,7 +2202,7 @@ def approve_plan_view(request, task_id):
                 if not existing_task:
                     next_task = Task.objects.create(
                         title=f"Согласовать план мероприятия «{card.title}»",
-                        description="План прошёл предыдущего согласующего.",
+                        description="Необходимо рассмотреть загруженный план и утвердить или отклонить.",
                         card=card,
                         assigned_employee=next_emp,
                         created_by=card.created_by,
@@ -2246,7 +2243,7 @@ def approve_plan_view(request, task_id):
                     if not existing_task:
                         final_task = Task.objects.create(
                             title=f"Утвердить план мероприятия «{card.title}»",
-                            description="План прошёл все согласования и направлен на утверждение.",
+                            description="Необходимо рассмотреть загруженный план и утвердить или отклонить.",
                             card=card,
                             assigned_employee=card.final_approver,
                             created_by=card.created_by,
