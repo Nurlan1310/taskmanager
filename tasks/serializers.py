@@ -87,6 +87,7 @@ class TaskSerializer(serializers.ModelSerializer):
     assigned_department = DepartmentSerializer(read_only=True)
     recipients = EmployeeSerializer(many=True, read_only=True)
     redirected_by = EmployeeSerializer(read_only=True)
+    final_reviewer = EmployeeSerializer(read_only=True)
     redirect_chain_employees = serializers.SerializerMethodField()
     approval_chain = serializers.SerializerMethodField()
     review_chain = serializers.SerializerMethodField()
@@ -127,7 +128,7 @@ class TaskSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'status', 'status_display', 
             'task_type', 'task_type_display', 'priority', 'priority_display', 'is_urgent',
-            'is_according_to_plan',
+            'is_according_to_plan', 'review_self', 'final_reviewer',
             'parent_task_id', 'relation_type',
             'created_at', 'due_date', 'completed_at', 'created_by', 'created_by_name',
             'assigned_employee', 'assigned_employee_id', 'assigned_employee_name',

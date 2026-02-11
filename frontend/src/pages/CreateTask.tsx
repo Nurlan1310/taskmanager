@@ -37,6 +37,9 @@ interface TaskFormData {
   google_drive_link: string
   is_according_to_plan: boolean
   creation_deputy_id: number | null
+  review_self: boolean
+  final_reviewer_enabled: boolean
+  final_reviewer_id: number | null
 }
 
 export default function CreateTask() {
@@ -55,6 +58,9 @@ export default function CreateTask() {
     google_drive_link: '',
     is_according_to_plan: true,
     creation_deputy_id: null,
+    review_self: true,
+    final_reviewer_enabled: false,
+    final_reviewer_id: null,
   })
 
   const [selectedRecipients, setSelectedRecipients] = useState<number[]>([])
@@ -153,6 +159,8 @@ export default function CreateTask() {
         selectedRecipients.forEach(id => formData.append('recipients_ids', id.toString()))
         if (data.google_drive_link) formData.append('google_drive_link', data.google_drive_link)
         if (data.creation_deputy_id) formData.append('creation_deputy_id', data.creation_deputy_id.toString())
+        formData.append('review_self', data.review_self.toString())
+        if (data.final_reviewer_enabled && data.final_reviewer_id) formData.append('final_reviewer_id', data.final_reviewer_id.toString())
         formData.append('file', data.file)
         
         return api.post('/tasks/', formData, {
@@ -174,6 +182,10 @@ export default function CreateTask() {
         }
         if (data.creation_deputy_id) {
           payload.creation_deputy_id = data.creation_deputy_id
+        }
+        payload.review_self = data.review_self
+        if (data.final_reviewer_enabled && data.final_reviewer_id) {
+          payload.final_reviewer_id = data.final_reviewer_id
         }
         
         return api.post('/tasks/', payload)
@@ -237,6 +249,11 @@ export default function CreateTask() {
     // Проверяем выбор заместителя, если требуется
     if (needsDeputySelection && !formData.creation_deputy_id) {
       alert('Необходимо выбрать заместителя для согласования')
+      return
+    }
+    
+    if (formData.final_reviewer_enabled && !formData.final_reviewer_id) {
+      alert('Необходимо выбрать финального проверяющего')
       return
     }
     
@@ -404,6 +421,82 @@ export default function CreateTask() {
                   </Button>
                 </div>
               </div>
+            </div>
+
+            <div className="space-y-4">
+              <label className="text-sm font-medium mb-2 block">
+                Проверка выполнения
+              </label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Кто будет проверять выполнение задачи (после сдачи исполнителем)
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">Проверить самому:</span>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={formData.review_self ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleChange('review_self', true)}
+                    >
+                      Да
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={!formData.review_self ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleChange('review_self', false)}
+                    >
+                      Нет
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">Финальный проверяющий:</span>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={formData.final_reviewer_enabled ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleChange('final_reviewer_enabled', true)}
+                    >
+                      Да
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={!formData.final_reviewer_enabled ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        handleChange('final_reviewer_enabled', false)
+                        handleChange('final_reviewer_id', null)
+                      }}
+                    >
+                      Нет
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              {formData.final_reviewer_enabled && (
+                <div className="mt-2">
+                  <label className="text-sm font-medium mb-2 block">
+                    Выберите финального проверяющего <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.final_reviewer_id || ''}
+                    onChange={(e) => handleChange('final_reviewer_id', e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full px-3 py-2 border rounded-md"
+                  >
+                    <option value="">Выберите заместителя или директора</option>
+                    {deputiesAndDirector.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.full_name_complete || person.full_name}
+                        {person.position && ` (${person.position})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {needsDeputySelection && (

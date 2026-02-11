@@ -29,17 +29,22 @@ export default function ExecuteTask() {
 
   const executeTaskMutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      return api.post(`/tasks/${id}/execute/`, formData, {
+      const response = await api.post(`/tasks/${id}/execute/`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       })
+      return response.data
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['task', id] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      toast.success('Исполнение задачи отправлено на проверку')
+      if (data?.status === 'done') {
+        toast.success('Задача выполнена без проверки')
+      } else {
+        toast.success('Исполнение задачи отправлено на проверку')
+      }
       navigate(`/tasks/${id}`)
     },
   })

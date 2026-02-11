@@ -712,6 +712,18 @@ class TaskViewSet(viewsets.ModelViewSet):
             except (ValueError, TypeError):
                 deputy_id = None
         
+        # Параметры проверки выполнения
+        review_self = request.data.get('review_self', True)
+        if isinstance(review_self, str):
+            review_self = review_self.lower() in ('true', '1', 'yes')
+        
+        final_reviewer_id = request.data.get('final_reviewer_id')
+        if final_reviewer_id:
+            try:
+                final_reviewer_id = int(final_reviewer_id)
+            except (ValueError, TypeError):
+                final_reviewer_id = None
+        
         # Определяем согласующих
         approvers = self._determine_approvers(employee, is_according_to_plan, deputy_id)
         
@@ -754,6 +766,14 @@ class TaskViewSet(viewsets.ModelViewSet):
                     task_data['created_by'] = employee
                     task_data['assigned_employee'] = recipient
                     task_data['is_according_to_plan'] = is_according_to_plan
+                    task_data['review_self'] = review_self
+                    if final_reviewer_id:
+                        try:
+                            task_data['final_reviewer'] = Employee.objects.get(id=final_reviewer_id)
+                        except Employee.DoesNotExist:
+                            task_data['final_reviewer'] = None
+                    else:
+                        task_data['final_reviewer'] = None
                     
                     # Определяем статус в зависимости от согласующих
                     if approvers:
@@ -871,12 +891,14 @@ class TaskViewSet(viewsets.ModelViewSet):
         else:
             # Если адресат один или не указан, создаем одну задачу через стандартный метод
             self.perform_create(serializer, file=file, google_drive_link=google_drive_link, 
-                              is_according_to_plan=is_according_to_plan, deputy_id=deputy_id, approvers=approvers)
+                              is_according_to_plan=is_according_to_plan, deputy_id=deputy_id, approvers=approvers,
+                              review_self=review_self, final_reviewer_id=final_reviewer_id)
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def perform_create(self, serializer, file=None, google_drive_link=None, 
-                      is_according_to_plan=True, deputy_id=None, approvers=None):
+                      is_according_to_plan=True, deputy_id=None, approvers=None,
+                      review_self=True, final_reviewer_id=None):
         try:
             employee = self.request.user.employee
         except Employee.DoesNotExist:
@@ -891,6 +913,14 @@ class TaskViewSet(viewsets.ModelViewSet):
             approvers = self._determine_approvers(employee, is_according_to_plan, deputy_id)
         
         validated_data['is_according_to_plan'] = is_according_to_plan
+        validated_data['review_self'] = review_self
+        if final_reviewer_id:
+            try:
+                validated_data['final_reviewer'] = Employee.objects.get(id=final_reviewer_id)
+            except Employee.DoesNotExist:
+                validated_data['final_reviewer'] = None
+        else:
+            validated_data['final_reviewer'] = None
         
         # Определяем статус и создаем цепочку согласования
         if approvers:
@@ -927,7 +957,6 @@ class TaskViewSet(viewsets.ModelViewSet):
             recipients_ids = []
             
         if recipients_ids:
-            from .models import Employee
             recipients = Employee.objects.filter(id__in=recipients_ids)
             task.recipients.set(recipients)
             # Если assigned_employee не установлен, устанавливаем первого адресата
@@ -1690,7 +1719,44 @@ def execute_task_view(request, task_id):
     link = request.data.get('link', '').strip()
 
     with transaction.atomic():
-        # Определяем действие для истории
+        # Формируем цепочку проверяющих:
+        # 1) Цепочка перенаправлений (в обратном порядке)
+        # 2) Если review_self — создатель задачи
+        # 3) Если указан final_reviewer — финальный проверяющий
+        reviewers_list = []
+        
+        redirect_chain_entries = task.redirect_chain.all().order_by('order')
+        if redirect_chain_entries.exists():
+            for entry in reversed(list(redirect_chain_entries)):
+                reviewers_list.append(entry.from_employee)
+        
+        if getattr(task, 'review_self', True):
+            reviewers_list.append(task.created_by)
+        
+        if getattr(task, 'final_reviewer', None):
+            reviewers_list.append(task.final_reviewer)
+
+        # Если проверяющих нет вообще — сразу завершаем задачу без проверки
+        if not reviewers_list:
+            # История: выполнение принято без проверки
+            TaskHistory.objects.create(
+                task=task,
+                employee=employee,
+                action="done",
+                comment=description or "Задача выполнена без проверки."
+            )
+            # Вложения (для истории, даже без проверки)
+            if file:
+                TaskAttachment.objects.create(task=task, file=file, uploaded_by=employee)
+            if link:
+                TaskAttachment.objects.create(task=task, link=link, uploaded_by=employee)
+
+            task.status = "done"
+            task.completed_at = timezone.now()
+            task.save(update_fields=["status", "completed_at"])
+            return Response(TaskSerializer(task).data)
+
+        # Если проверяющие есть — обычная логика отправки на проверку
         if task.status == "sent_for_review":
             action_label = "execution_updated"
             comment_text = description or "Исполнитель внёс изменения в выполнение."
@@ -1698,7 +1764,6 @@ def execute_task_view(request, task_id):
             action_label = "sent_for_review"
             comment_text = description or "Отправлено на проверку"
 
-        # Запись в историю
         TaskHistory.objects.create(
             task=task,
             employee=employee,
@@ -1706,33 +1771,18 @@ def execute_task_view(request, task_id):
             comment=comment_text
         )
 
-        # Вложения
+        # Вложения должны относиться к этому действию исполнения,
+        # поэтому сохраняем их после записи в историю
         if file:
             TaskAttachment.objects.create(task=task, file=file, uploaded_by=employee)
         if link:
             TaskAttachment.objects.create(task=task, link=link, uploaded_by=employee)
 
-        # Обновляем статус исходной задачи
         task.status = "sent_for_review"
         task.save(update_fields=["status"])
 
-        # Определяем цепочку проверки:
-        # Если задача была перенаправлена, проверка идет по цепочке перенаправлений (в обратном порядке), потом создателю
-        # Иначе проверка идет только создателю
-        reviewers_list = []
-        
-        # Если есть цепочка перенаправлений, добавляем всех перенаправивших в обратном порядке
-        redirect_chain_entries = task.redirect_chain.all().order_by('order')
-        if redirect_chain_entries.exists():
-            # Добавляем в обратном порядке (последний перенаправивший проверяет первым)
-            for entry in reversed(list(redirect_chain_entries)):
-                reviewers_list.append(entry.from_employee)
-        
-        # В конце добавляем создателя задачи
-        reviewers_list.append(task.created_by)
-        
         # Создаем цепочку проверяющих в новой модели
-        task.review_chain.all().delete()  # Очищаем старую цепочку
+        task.review_chain.all().delete()
         for order, reviewer in enumerate(reviewers_list, 1):
             task.add_to_review_chain(reviewer, order=order)
         
@@ -1751,7 +1801,6 @@ def execute_task_view(request, task_id):
         
         if first_reviewer and (not existing_review or existing_review.status == "done"):
             # Создаем только первую задачу на проверку для первого проверяющего
-            # Остальные задачи будут создаваться последовательно после утверждения предыдущей
             review_task = Task.objects.create(
                 title=f"Проверить выполнение задачи «{task.title}»",
                 description=description,
@@ -1789,18 +1838,19 @@ def execute_task_view(request, task_id):
                 logger.error(f"Ошибка отправки уведомления проверяющему: {e}")
         else:
             # Если review ещё не завершена — просто обновляем её
-            existing_review.description = (
-                f"Исполнитель обновил выполнение задачи.\n\n{description or existing_review.description}"
-            )
-            existing_review.status = "new"
-            existing_review.save(update_fields=["description", "status"])
-            
-            TaskHistory.objects.create(
-                task=existing_review,
-                employee=employee,
-                action="execution_updated",
-                comment="Исполнитель обновил выполнение."
-            )
+            if existing_review:
+                existing_review.description = (
+                    f"Исполнитель обновил выполнение задачи.\n\n{description or existing_review.description}"
+                )
+                existing_review.status = "new"
+                existing_review.save(update_fields=["description", "status"])
+                
+                TaskHistory.objects.create(
+                    task=existing_review,
+                    employee=employee,
+                    action="execution_updated",
+                    comment="Исполнитель обновил выполнение."
+                )
 
     return Response(TaskSerializer(task).data)
 
@@ -2192,7 +2242,7 @@ def approve_plan_view(request, task_id):
                         assigned_employee=next_emp,
                         created_by=card.created_by,
                         task_type="approval",
-                        priority="normal",
+                        priority="urgent",
                     )
                     
                     # Отправляем уведомление следующему согласующему
@@ -3261,12 +3311,12 @@ def recall_task_view(request, task_id):
     # Получаем задачу
     task = get_object_or_404(Task, id=task_id)
     
-    # Проверяем, что задача в статусе send_for_approve или new (без цепочки согласующих)
+    # Проверяем, что задача типа обычная и в статусе send_for_approve или new (без цепочки согласующих)
     has_approval_chain = task.approval_chain.exists()
-    if task.status == 'send_for_approve':
+    if task.task_type == 'regular' and task.status == 'send_for_approve':
         # Отзыв из send_for_approve - удаляем задачи на согласование
         should_delete_approval_tasks = True
-    elif task.status == 'new' and not has_approval_chain:
+    elif task.task_type == 'regular' and task.status == 'new' and not has_approval_chain:
         # Отзыв из new (без цепочки) - просто меняем статус
         should_delete_approval_tasks = False
     else:

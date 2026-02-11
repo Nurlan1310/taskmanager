@@ -934,7 +934,7 @@ export default function CardDetail() {
                                     <>
                                       <ArrowRight className="w-3 h-3" />
                                       <span className="text-muted-foreground">
-                                        {task.redirect_chain_employees.map((emp: any) => emp.full_name).join(' → ')}
+                                        {task.redirect_chain_employees.map((emp: Employee) => emp.full_name).join(' → ')}
                                       </span>
                                     </>
                                   )}

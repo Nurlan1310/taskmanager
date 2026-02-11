@@ -221,8 +221,6 @@ export default function TaskCreationApproval() {
                         <a
                           href={attachment.file}
                           download={attachment.file_name || undefined}
-                          target="_blank"
-                          rel="noopener noreferrer"
                           className="text-primary hover:underline flex items-center gap-2"
                         >
                           <FileText className="w-4 h-4" />

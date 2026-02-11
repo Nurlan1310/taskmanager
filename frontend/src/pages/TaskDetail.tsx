@@ -283,7 +283,7 @@ export default function TaskDetail() {
   // 1. Статус send_for_approve
   // 2. Статус new и нет цепочки согласующих
   const hasApprovalChain = task.creation_approval_chain && task.creation_approval_chain.length > 0
-  const canRecall = isCreator && (
+  const canRecall = isCreator && task.task_type === 'regular' && (
     task.status === 'send_for_approve' || 
     (task.status === 'new' && !hasApprovalChain)
   )

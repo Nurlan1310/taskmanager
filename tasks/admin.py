@@ -83,8 +83,8 @@ class TaskCommentInline(admin.TabularInline):
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ("card", "title", "status", "created_by", "assigned_department", "assigned_employee", "deadline", "is_urgent")
-    list_filter = ("status", "assigned_department", "card", "priority")
+    list_display = ("card", "title", "status", "created_by", "assigned_department", "assigned_employee", "deadline")
+    list_filter = ("status", "assigned_department", "card", "priority", "task_type", "recipients", "due_date")
     search_fields = ("title", "description")
     raw_id_fields = ("created_by", "assigned_department", "assigned_employee")
     filter_horizontal = ("cc", "recipients")

@@ -93,22 +93,4 @@ class Migration(migrations.Migration):
             name='taskredirectchain',
             unique_together={('task', 'order')},
         ),
-        
-        # 4. Удаляем старые JSON поля из Task
-        migrations.RemoveField(
-            model_name='task',
-            name='creation_approval_chain',
-        ),
-        migrations.RemoveField(
-            model_name='task',
-            name='reviewers_chain',
-        ),
-        migrations.RemoveField(
-            model_name='task',
-            name='redirect_chain',
-        ),
-        migrations.RemoveField(
-            model_name='task',
-            name='current_approval_index',
-        ),
     ]

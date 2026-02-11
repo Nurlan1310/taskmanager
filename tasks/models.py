@@ -294,6 +294,23 @@ class Task(models.Model):
         help_text="Флаг, создана ли задача согласно плана",
     )
     
+    # Проверка выполнения: выбор проверяющих при создании задачи
+    review_self = models.BooleanField(
+        default=True,
+        verbose_name="Проверить самому",
+        help_text="Создатель проверяет выполнение (первым в цепочке)",
+    )
+    final_reviewer = models.ForeignKey(
+        'Employee',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="final_review_tasks",
+        verbose_name="Финальный проверяющий",
+        help_text="Финальный проверяющий (после создателя)",
+        limit_choices_to={"role__in": ["deputy", "director"]},
+    )
+    
     # Связь с другими задачами (для согласования создания и проверки выполнения)
     parent_task = models.ForeignKey(
         "self",
