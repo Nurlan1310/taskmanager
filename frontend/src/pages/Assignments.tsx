@@ -243,7 +243,7 @@ export default function Assignments() {
   const { data: activeCards } = useQuery<EventCard[]>({
     queryKey: ['activeCards', 'forTaskCreation'],
     queryFn: async () => {
-      const response = await api.get('/cards/?archive=false')
+      const response = await api.get('/cards/?archive=false&include_all=true')
       const allCards = Array.isArray(response.data) ? response.data : (response.data.results || [])
       // Фильтруем только активные мероприятия, где можно создавать задачи
       return allCards.filter((card: EventCard) => {
@@ -524,4 +524,3 @@ export default function Assignments() {
     </div>
   )
 }
-

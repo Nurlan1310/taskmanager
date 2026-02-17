@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
-import { Calendar, Building2 } from 'lucide-react'
+import { Calendar, Building2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatDateInAstanaTime } from '@/lib/dateUtils'
 
 interface EventCard {
@@ -51,11 +51,19 @@ interface Category {
 
 type ScopeFilter = 'all' | 'my_department'
 
+interface PaginatedResponse<T> {
+  count: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
+
 export default function Archive() {
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedCategory = searchParams.get('category') || ''
   const selectedScope = (searchParams.get('scope') as ScopeFilter) || 'all'
   const selectedDepartmentId = searchParams.get('department') || ''
+  const currentPage = Math.max(parseInt(searchParams.get('page') || '1', 10) || 1, 1)
 
   const { data: currentUser } = useQuery({
     queryKey: ['currentUser'],
@@ -90,23 +98,44 @@ export default function Archive() {
     enabled: isDirectorOrDeputy,
   })
 
-  const { data: cards, isLoading } = useQuery<EventCard[]>({
-    queryKey: ['cards', 'archive', selectedCategory, selectedScope, selectedDepartmentId],
+  const { data: cardsData, isLoading } = useQuery<PaginatedResponse<EventCard>>({
+    queryKey: ['cards', 'archive', selectedCategory, selectedScope, selectedDepartmentId, currentPage],
     queryFn: async () => {
       const params = new URLSearchParams()
       params.set('archive', 'true')
+      params.set('page', currentPage.toString())
       if (selectedCategory) params.set('category', selectedCategory)
       if (selectedScope === 'my_department') params.set('scope', 'my_department')
       if (selectedDepartmentId && isDirectorOrDeputy) params.set('department_id', selectedDepartmentId)
       const response = await api.get(`/cards/?${params.toString()}`)
-      return Array.isArray(response.data) ? response.data : (response.data.results || [])
+      if (Array.isArray(response.data)) {
+        return {
+          results: response.data,
+          count: response.data.length,
+          next: null,
+          previous: null,
+        }
+      }
+      return {
+        results: response.data.results || [],
+        count: response.data.count || 0,
+        next: response.data.next || null,
+        previous: response.data.previous || null,
+      }
     },
   })
+
+  const cards = cardsData?.results || []
+  const totalCount = cardsData?.count || 0
+  const hasNext = !!cardsData?.next
+  const hasPrevious = !!cardsData?.previous
+  const totalPages = Math.max(Math.ceil(totalCount / 24), 1)
 
   const handleCategoryChange = (categorySlug: string) => {
     const next = new URLSearchParams(searchParams)
     if (categorySlug) next.set('category', categorySlug)
     else next.delete('category')
+    next.delete('page')
     setSearchParams(next)
   }
 
@@ -114,6 +143,7 @@ export default function Archive() {
     const next = new URLSearchParams(searchParams)
     if (scope === 'my_department') next.set('scope', 'my_department')
     else next.delete('scope')
+    next.delete('page')
     setSearchParams(next)
   }
 
@@ -121,6 +151,15 @@ export default function Archive() {
     const next = new URLSearchParams(searchParams)
     if (departmentId) next.set('department', departmentId)
     else next.delete('department')
+    next.delete('page')
+    setSearchParams(next)
+  }
+
+  const setCurrentPage = (page: number) => {
+    const safePage = Math.max(1, page)
+    const next = new URLSearchParams(searchParams)
+    if (safePage === 1) next.delete('page')
+    else next.set('page', safePage.toString())
     setSearchParams(next)
   }
 
@@ -190,7 +229,38 @@ export default function Archive() {
         )}
       </div>
 
-      {cards && cards.length > 0 ? (
+      {totalCount > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Показано {cards.length} из {totalCount}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(currentPage - 1)}
+              disabled={!hasPrevious}
+              className="h-8 px-2"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">
+              Страница {currentPage} из {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(currentPage + 1)}
+              disabled={!hasNext}
+              className="h-8 px-2"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {cards.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {cards.map((card) => (
             <Card key={card.id} className="hover:shadow-lg transition-shadow">
