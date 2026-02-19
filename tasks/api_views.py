@@ -2688,7 +2688,7 @@ def task_review_view(request, task_id):
     attachments = []
     last_exec_comment = None
 
-    # Ищем последнюю отправку на согласование
+    # Ищем последнюю отправку на согласование исполнителем
     last_exec = base_task.history.filter(
         action__in=["sent_for_review", "execution_updated"]
     ).order_by("-timestamp").first()
@@ -2696,12 +2696,37 @@ def task_review_view(request, task_id):
     if last_exec:
         last_exec_comment = last_exec.comment
 
-        # Берём только вложения, созданные после последней отправки
-        attachments = (
-            base_task.attachments
-            .filter(uploaded_at__gte=last_exec.timestamp)
-            .order_by("uploaded_at")
-        )
+    # Определяем позицию текущего проверяющего в цепочке.
+    # Это надежнее, чем ориентироваться на created_by review-задачи.
+    review_entries = base_task.review_chain.all().order_by('order')
+    current_entry = review_entries.filter(reviewer=review_task.assigned_employee).first()
+
+    # Для первого проверяющего показываем вложения исполнителя (последняя отправка исполнения).
+    # Для последующих — только вложения предыдущего проверяющего по цепочке.
+    if current_entry:
+        if current_entry.order == 1:
+            if last_exec:
+                attachments = (
+                    base_task.attachments
+                    .filter(uploaded_at__gte=last_exec.timestamp)
+                    .order_by("uploaded_at")
+                )
+        else:
+            prev_entry = review_entries.filter(order=current_entry.order - 1).first()
+            if prev_entry:
+                attachments = (
+                    base_task.attachments
+                    .filter(uploaded_by=prev_entry.reviewer)
+                    .order_by("uploaded_at")
+                )
+    else:
+        # Fallback: если цепочка почему-то не найдена, показываем вложения исполнителя
+        if last_exec:
+            attachments = (
+                base_task.attachments
+                .filter(uploaded_at__gte=last_exec.timestamp)
+                .order_by("uploaded_at")
+            )
 
     from .serializers import TaskSerializer, TaskAttachmentSerializer
 
@@ -2717,7 +2742,7 @@ def task_review_view(request, task_id):
 @permission_classes([IsAuthenticated])
 def task_review_approve_view(request, task_id):
     """Проверяющий утверждает выполнение задачи."""
-    from .models import TaskHistory
+    from .models import TaskHistory, TaskAttachment
     from django.shortcuts import get_object_or_404
     from django.db import transaction
     import re
@@ -2749,6 +2774,17 @@ def task_review_approve_view(request, task_id):
         )
 
     comment = request.data.get('comment', '').strip()
+    file = request.FILES.get('file')
+    link = request.data.get('link', '').strip()
+    approve_with_changes = request.data.get('approve_with_changes', False)
+    if isinstance(approve_with_changes, str):
+        approve_with_changes = approve_with_changes.lower() in ('true', '1', 'yes')
+
+    if approve_with_changes and not file and not link:
+        return Response(
+            {'error': 'Для утверждения с поправками добавьте файл или ссылку'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     with transaction.atomic():
         # Обновляем статусы
         review_task.status = "done"
@@ -2770,6 +2806,14 @@ def task_review_approve_view(request, task_id):
             current_review_entry.reviewed_at = timezone.now()
             current_review_entry.review_comment = comment
             current_review_entry.save(update_fields=['status', 'reviewed_at', 'review_comment'])
+
+        # Если утверждаем с поправками — сохраняем вложения к исходной задаче,
+        # чтобы следующий проверяющий увидел их в TaskReview attachments.
+        if approve_with_changes:
+            if file:
+                TaskAttachment.objects.create(task=base_task, file=file, uploaded_by=effective_reviewer)
+            if link:
+                TaskAttachment.objects.create(task=base_task, link=link, uploaded_by=effective_reviewer)
         
         # Ищем следующего проверяющего
         next_review_entry = review_entries.filter(status='pending', order__gt=current_review_entry.order if current_review_entry else -1).first() if current_review_entry else review_entries.filter(status='pending').first()
@@ -2808,7 +2852,10 @@ def task_review_approve_view(request, task_id):
                     task=base_task,
                     employee=effective_reviewer,
                     action='pending',
-                    comment=f'Проверка передана {next_reviewer.full_name}'
+                    comment=(
+                        f'Проверка передана {next_reviewer.full_name}'
+                        + (' с поправками.' if approve_with_changes else '.')
+                    )
                 )
         else:
             # Нет больше проверяющих - завершаем исходную задачу

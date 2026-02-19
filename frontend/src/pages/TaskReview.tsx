@@ -5,6 +5,7 @@ import api from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { 
   ArrowLeft, 
   User, 
@@ -32,6 +33,8 @@ export default function TaskReview() {
   const queryClient = useQueryClient()
   
   const [comment, setComment] = useState('')
+  const [link, setLink] = useState('')
+  const [file, setFile] = useState<File | null>(null)
 
   const { data: reviewData, isLoading } = useQuery<ReviewData>({
     queryKey: ['taskReview', id],
@@ -65,6 +68,32 @@ export default function TaskReview() {
     },
   })
 
+  const approveWithChangesMutation = useMutation({
+    mutationFn: async () => {
+      const formData = new FormData()
+      formData.append('comment', comment)
+      formData.append('approve_with_changes', 'true')
+      if (link.trim()) {
+        formData.append('link', link.trim())
+      }
+      if (file) {
+        formData.append('file', file)
+      }
+      return api.post(`/tasks/${id}/review/approve/`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['taskReview', id] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Исполнение утверждено с поправками')
+      navigate('/tasks')
+    },
+  })
+
   const rejectMutation = useMutation({
     mutationFn: async (comment: string) => {
       return api.post(`/tasks/${id}/review/reject/`, { comment })
@@ -88,6 +117,14 @@ export default function TaskReview() {
       return
     }
     rejectMutation.mutate(comment)
+  }
+
+  const handleApproveWithChanges = () => {
+    if (!link.trim() && !file) {
+      alert('Добавьте файл или ссылку для утверждения с поправками')
+      return
+    }
+    approveWithChangesMutation.mutate()
   }
 
   if (isLoading) {
@@ -271,6 +308,29 @@ export default function TaskReview() {
               </p>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Ссылка с поправками
+                </label>
+                <Input
+                  type="url"
+                  value={link}
+                  onChange={(e) => setLink(e.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Файл с поправками
+                </label>
+                <Input
+                  type="file"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                />
+              </div>
+            </div>
+
             <div className="flex gap-4">
               <Button
                 onClick={handleApprove}
@@ -280,6 +340,14 @@ export default function TaskReview() {
               >
                 <CheckCircle2 className="w-4 h-4 mr-2" />
                 {approveMutation.isPending ? 'Утверждение...' : 'Утвердить'}
+              </Button>
+              <Button
+                onClick={handleApproveWithChanges}
+                disabled={approveWithChangesMutation.isPending || (!link.trim() && !file)}
+                className="flex-1 bg-violet-600 hover:bg-violet-700 text-white"
+              >
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                {approveWithChangesMutation.isPending ? 'Сохранение поправок...' : 'Утвердить с поправками'}
               </Button>
               <Button
                 onClick={handleReject}
