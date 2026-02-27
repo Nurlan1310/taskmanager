@@ -104,6 +104,7 @@ export default function Cards() {
       const params = new URLSearchParams()
       params.set('archive', 'false')
       params.set('page', currentPage.toString())
+      params.set('page_size', '24')
       if (selectedCategory) params.set('category', selectedCategory)
       if (selectedScope === 'my_department') params.set('scope', 'my_department')
       if (selectedDepartmentId && isDirectorOrDeputy) params.set('department_id', selectedDepartmentId)

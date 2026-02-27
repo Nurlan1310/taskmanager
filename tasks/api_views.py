@@ -33,6 +33,10 @@ class TaskPagination(PageNumberPagination):
     max_page_size = 100
 
 
+class CardPagination(PageNumberPagination):
+    page_size = 24
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ensure_csrf_cookie
@@ -1270,6 +1274,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
 class EventCardViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
+    pagination_class = CardPagination
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -1718,6 +1723,17 @@ def execute_task_view(request, task_id):
     file = request.FILES.get('file')
     link = request.data.get('link', '').strip()
 
+    def _copy_package_to_review_task(review_task_obj, package_attachments):
+        """Копируем пакет вложений в задачу проверки."""
+        review_task_obj.attachments.all().delete()
+        for src in package_attachments:
+            TaskAttachment.objects.create(
+                task=review_task_obj,
+                file=src.file if src.file else None,
+                link=src.link if src.link else None,
+                uploaded_by=src.uploaded_by
+            )
+
     with transaction.atomic():
         # Формируем цепочку проверяющих:
         # 1) Цепочка перенаправлений (в обратном порядке)
@@ -1764,7 +1780,7 @@ def execute_task_view(request, task_id):
             action_label = "sent_for_review"
             comment_text = description or "Отправлено на проверку"
 
-        TaskHistory.objects.create(
+        exec_history = TaskHistory.objects.create(
             task=task,
             employee=employee,
             action=action_label,
@@ -1773,10 +1789,15 @@ def execute_task_view(request, task_id):
 
         # Вложения должны относиться к этому действию исполнения,
         # поэтому сохраняем их после записи в историю
+        submission_attachment_ids = []
         if file:
-            TaskAttachment.objects.create(task=task, file=file, uploaded_by=employee)
+            a = TaskAttachment.objects.create(task=task, file=file, uploaded_by=employee)
+            submission_attachment_ids.append(a.id)
         if link:
-            TaskAttachment.objects.create(task=task, link=link, uploaded_by=employee)
+            a = TaskAttachment.objects.create(task=task, link=link, uploaded_by=employee)
+            submission_attachment_ids.append(a.id)
+
+        submission_attachments = task.attachments.filter(id__in=submission_attachment_ids).order_by("uploaded_at")
 
         task.status = "sent_for_review"
         task.save(update_fields=["status"])
@@ -1820,6 +1841,10 @@ def execute_task_view(request, task_id):
                 action="created",
                 comment=f"Создана задача для проверки выполнения. Проверяющий: {first_reviewer.full_name}."
             )
+
+            # Первый проверяющий видит пакет исполнителя этой отправки
+            if submission_attachment_ids:
+                _copy_package_to_review_task(review_task, submission_attachments)
             
             # Отправляем уведомление проверяющему
             try:
@@ -1851,6 +1876,11 @@ def execute_task_view(request, task_id):
                     action="execution_updated",
                     comment="Исполнитель обновил выполнение."
                 )
+
+                # Обновляем пакет вложений для текущего проверяющего.
+                # Если исполнитель не приложил новых данных, оставляем предыдущий пакет.
+                if submission_attachment_ids:
+                    _copy_package_to_review_task(existing_review, submission_attachments)
 
     return Response(TaskSerializer(task).data)
 
@@ -2696,37 +2726,17 @@ def task_review_view(request, task_id):
     if last_exec:
         last_exec_comment = last_exec.comment
 
-    # Определяем позицию текущего проверяющего в цепочке.
-    # Это надежнее, чем ориентироваться на created_by review-задачи.
-    review_entries = base_task.review_chain.all().order_by('order')
-    current_entry = review_entries.filter(reviewer=review_task.assigned_employee).first()
+    # Основной источник вложений для проверки — пакет, прикрепленный к review-задаче.
+    attachments = review_task.attachments.all().order_by("uploaded_at")
 
-    # Для первого проверяющего показываем вложения исполнителя (последняя отправка исполнения).
-    # Для последующих — только вложения предыдущего проверяющего по цепочке.
-    if current_entry:
-        if current_entry.order == 1:
-            if last_exec:
-                attachments = (
-                    base_task.attachments
-                    .filter(uploaded_at__gte=last_exec.timestamp)
-                    .order_by("uploaded_at")
-                )
-        else:
-            prev_entry = review_entries.filter(order=current_entry.order - 1).first()
-            if prev_entry:
-                attachments = (
-                    base_task.attachments
-                    .filter(uploaded_by=prev_entry.reviewer)
-                    .order_by("uploaded_at")
-                )
-    else:
-        # Fallback: если цепочка почему-то не найдена, показываем вложения исполнителя
-        if last_exec:
-            attachments = (
-                base_task.attachments
-                .filter(uploaded_at__gte=last_exec.timestamp)
-                .order_by("uploaded_at")
-            )
+    # Fallback для старых задач (до внедрения пакетной передачи вложений):
+    # первый проверяющий увидит вложения исполнителя последней отправки.
+    if (not attachments.exists()) and review_task.created_by_id == base_task.assigned_employee_id and last_exec:
+        attachments = (
+            base_task.attachments
+            .filter(uploaded_at__gte=last_exec.timestamp)
+            .order_by("uploaded_at")
+        )
 
     from .serializers import TaskSerializer, TaskAttachmentSerializer
 
@@ -2785,6 +2795,22 @@ def task_review_approve_view(request, task_id):
             {'error': 'Для утверждения с поправками добавьте файл или ссылку'},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    def _copy_attachments(src_attachments, target_task, uploaded_by):
+        """Копирует вложения (пакет) из одной review-задачи в другую."""
+        target_task.attachments.all().delete()
+        for src in src_attachments:
+            TaskAttachment.objects.create(
+                task=target_task,
+                file=src.file if src.file else None,
+                link=src.link if src.link else None,
+                uploaded_by=uploaded_by
+            )
+
+    def _get_latest_file_and_link(attachments_qs):
+        latest_file = attachments_qs.filter(file__isnull=False).order_by("-uploaded_at").first()
+        latest_link = attachments_qs.filter(link__isnull=False).order_by("-uploaded_at").first()
+        return latest_file, latest_link
     with transaction.atomic():
         # Обновляем статусы
         review_task.status = "done"
@@ -2807,13 +2833,7 @@ def task_review_approve_view(request, task_id):
             current_review_entry.review_comment = comment
             current_review_entry.save(update_fields=['status', 'reviewed_at', 'review_comment'])
 
-        # Если утверждаем с поправками — сохраняем вложения к исходной задаче,
-        # чтобы следующий проверяющий увидел их в TaskReview attachments.
-        if approve_with_changes:
-            if file:
-                TaskAttachment.objects.create(task=base_task, file=file, uploaded_by=effective_reviewer)
-            if link:
-                TaskAttachment.objects.create(task=base_task, link=link, uploaded_by=effective_reviewer)
+        current_package = review_task.attachments.all().order_by("uploaded_at")
         
         # Ищем следующего проверяющего
         next_review_entry = review_entries.filter(status='pending', order__gt=current_review_entry.order if current_review_entry else -1).first() if current_review_entry else review_entries.filter(status='pending').first()
@@ -2847,6 +2867,25 @@ def task_review_approve_view(request, task_id):
                     status="new",
                     priority="normal",
                 )
+
+                # Формируем пакет вложений для следующего проверяющего
+                if approve_with_changes:
+                    # С поправками: измененное поле перезаписывает текущее,
+                    # неизмененное — переносится с предыдущего шага.
+                    prev_file, prev_link = _get_latest_file_and_link(current_package)
+
+                    if file:
+                        TaskAttachment.objects.create(task=next_review_task, file=file, uploaded_by=effective_reviewer)
+                    elif prev_file:
+                        TaskAttachment.objects.create(task=next_review_task, file=prev_file.file, uploaded_by=effective_reviewer)
+
+                    if link:
+                        TaskAttachment.objects.create(task=next_review_task, link=link, uploaded_by=effective_reviewer)
+                    elif prev_link:
+                        TaskAttachment.objects.create(task=next_review_task, link=prev_link.link, uploaded_by=effective_reviewer)
+                else:
+                    # Без поправок: передаем пакет как есть.
+                    _copy_attachments(current_package, next_review_task, effective_reviewer)
                 
                 TaskHistory.objects.create(
                     task=base_task,
@@ -2857,6 +2896,55 @@ def task_review_approve_view(request, task_id):
                         + (' с поправками.' if approve_with_changes else '.')
                     )
                 )
+                # Уведомление следующему проверяющему
+                if next_reviewer.user:
+                    try:
+                        from .notifications import send_task_notification
+                        reviewer_name = effective_reviewer.full_name or (effective_reviewer.user.get_full_name() if effective_reviewer.user else '') or getattr(effective_reviewer.user, 'username', '')
+                        send_task_notification(
+                            user=next_reviewer.user,
+                            title="Передано на вашу проверку",
+                            body=f"{reviewer_name} отправил(-а) исполнение задачи «{base_task.title}» на проверку"
+                            + (" (с поправками)." if approve_with_changes else "."),
+                            task_id=next_review_task.id,
+                            notification_type='task.execution_sent_for_review'
+                        )
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Ошибка отправки уведомления следующему проверяющему: {e}")
+            else:
+                # Если задача на следующего проверяющего уже есть и активна — обновляем пакет вложений.
+                if approve_with_changes:
+                    prev_file, prev_link = _get_latest_file_and_link(current_package)
+                    existing_review.attachments.all().delete()
+                    if file:
+                        TaskAttachment.objects.create(task=existing_review, file=file, uploaded_by=effective_reviewer)
+                    elif prev_file:
+                        TaskAttachment.objects.create(task=existing_review, file=prev_file.file, uploaded_by=effective_reviewer)
+                    if link:
+                        TaskAttachment.objects.create(task=existing_review, link=link, uploaded_by=effective_reviewer)
+                    elif prev_link:
+                        TaskAttachment.objects.create(task=existing_review, link=prev_link.link, uploaded_by=effective_reviewer)
+                else:
+                    _copy_attachments(current_package, existing_review, effective_reviewer)
+                # Уведомление следующему проверяющему (задача уже была создана, обновлён пакет)
+                if next_reviewer.user:
+                    try:
+                        from .notifications import send_task_notification
+                        reviewer_name = effective_reviewer.full_name or (effective_reviewer.user.get_full_name() if effective_reviewer.user else '') or getattr(effective_reviewer.user, 'username', '')
+                        send_task_notification(
+                            user=next_reviewer.user,
+                            title="Передано на вашу проверку",
+                            body=f"{reviewer_name} отправил(-а) исполнение задачи «{base_task.title}» на проверку"
+                            + (" (с поправками)." if approve_with_changes else "."),
+                            task_id=existing_review.id,
+                            notification_type='task.execution_sent_for_review'
+                        )
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Ошибка отправки уведомления следующему проверяющему: {e}")
         else:
             # Нет больше проверяющих - завершаем исходную задачу
             base_task.status = "done"

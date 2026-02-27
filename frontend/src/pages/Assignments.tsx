@@ -243,8 +243,29 @@ export default function Assignments() {
   const { data: activeCards } = useQuery<EventCard[]>({
     queryKey: ['activeCards', 'forTaskCreation'],
     queryFn: async () => {
-      const response = await api.get('/cards/?archive=false&include_all=true')
-      const allCards = Array.isArray(response.data) ? response.data : (response.data.results || [])
+      const allCards: EventCard[] = []
+      let page = 1
+      let hasNext = true
+
+      while (hasNext) {
+        const params = new URLSearchParams()
+        params.set('archive', 'false')
+        params.set('include_all', 'true')
+        params.set('page', page.toString())
+        params.set('page_size', '100')
+
+        const response = await api.get(`/cards/?${params.toString()}`)
+
+        if (Array.isArray(response.data)) {
+          allCards.push(...response.data)
+          hasNext = false
+        } else {
+          allCards.push(...(response.data.results || []))
+          hasNext = !!response.data.next
+          page += 1
+        }
+      }
+
       // Фильтруем только активные мероприятия, где можно создавать задачи
       return allCards.filter((card: EventCard) => {
         // Активное мероприятие: is_active=true и (visible=true или нет плана или план утвержден)
