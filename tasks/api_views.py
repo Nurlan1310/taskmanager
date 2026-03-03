@@ -1329,9 +1329,9 @@ class EventCardViewSet(viewsets.ModelViewSet):
             'created_by', 'responsible_department', 'final_approver'
         ).prefetch_related('categories', 'shared_departments', 'tasks', 'approvers')
 
-        # Для retrieve (получение одной карточки) не применяем фильтры по категории и архиву
-        # Пользователь должен иметь доступ к карточке, если у него есть права, независимо от фильтров
-        if self.action == 'retrieve':
+        # Для retrieve/update/partial_update не применяем фильтры по категории и архиву:
+        # карточку нужно найти по ID (в т.ч. при редактировании дат в архиве).
+        if self.action in ('retrieve', 'update', 'partial_update'):
             return queryset.order_by('-start_date')
 
         category = self.request.query_params.get('category')
