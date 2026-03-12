@@ -678,3 +678,130 @@ class FCMDevice(models.Model):
 
     def __str__(self):
         return f"{self.user} | {self.platform}"
+
+
+# =========================================================
+# KPI-модели
+# =========================================================
+
+
+class KPIReport(models.Model):
+    """
+    Ежемесячный отчет по KPI.
+    Хранит факт генерации и версию формулы.
+    """
+
+    STATUS_CHOICES = [
+        ("draft", "Черновик"),
+        ("completed", "Сформирован"),
+        ("failed", "Ошибка формирования"),
+    ]
+
+    year = models.PositiveIntegerField(verbose_name="Год")
+    month = models.PositiveIntegerField(verbose_name="Месяц (1-12)")
+
+    generated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="kpi_reports",
+        verbose_name="Кто сформировал",
+    )
+    generated_at = models.DateTimeField(auto_now_add=True, verbose_name="Когда сформирован")
+
+    formula_version = models.CharField(
+        max_length=20,
+        default="v1",
+        verbose_name="Версия формулы",
+        help_text="Позволяет менять формулу в будущем, не ломая старые отчеты.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="completed",
+        verbose_name="Статус формирования",
+    )
+    message = models.TextField(blank=True, null=True, verbose_name="Служебное сообщение / ошибка")
+
+    class Meta:
+        verbose_name = "KPI отчёт"
+        verbose_name_plural = "KPI отчёты"
+        unique_together = ("year", "month", "formula_version")
+        ordering = ["-year", "-month", "-generated_at"]
+
+    def __str__(self):
+        return f"KPI {self.year}-{self.month:02d} ({self.formula_version})"
+
+
+class KPIResult(models.Model):
+    """
+    Строка KPI по одному сотруднику за конкретный отчет.
+    Хранит итоговый балл и расшифровку в JSON.
+    """
+
+    report = models.ForeignKey(
+        KPIReport,
+        on_delete=models.CASCADE,
+        related_name="results",
+        verbose_name="Отчет",
+    )
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="kpi_results",
+        verbose_name="Сотрудник",
+    )
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="kpi_results",
+        verbose_name="Отдел (срез на момент расчета)",
+    )
+    role_snapshot = models.CharField(
+        max_length=20,
+        choices=Employee.ROLE_CHOICES,
+        verbose_name="Роль на момент расчета",
+    )
+
+    score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        verbose_name="Итоговый балл (0-100)",
+    )
+
+    # Сырые метрики (количества задач, доли, средние времена и т.д.)
+    metrics_json = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Сырые метрики",
+        help_text="Вспомогательные метрики, на основе которых считается KPI.",
+    )
+
+    # Разложение итогового балла по блокам (сроки, результативность, нагрузка и т.д.)
+    breakdown_json = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Разложение балла",
+        help_text="Например: {'timeliness': 42.5, 'completion': 30, 'workload': 15, ...}.",
+    )
+
+    # Флаги качества данных (мало задач, нет due_date и т.п.)
+    flags_json = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Флаги качества данных",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+
+    class Meta:
+        verbose_name = "KPI результат"
+        verbose_name_plural = "KPI результаты"
+        unique_together = ("report", "employee")
+        ordering = ["employee__department__priority", "employee__department__name", "employee__middlename"]
+
+    def __str__(self):
+        return f"{self.employee.full_name} — {self.score} баллов в {self.report}"

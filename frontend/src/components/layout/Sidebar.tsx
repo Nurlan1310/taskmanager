@@ -1,9 +1,9 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { 
-  LayoutDashboard, 
-  CheckSquare, 
-  Calendar, 
-  Users, 
+import {
+  LayoutDashboard,
+  CheckSquare,
+  Calendar,
+  Users,
   UserCheck,
   Settings,
   LogOut,
@@ -11,7 +11,8 @@ import {
   UserCircle,
   ClipboardList,
   BarChart3,
-  Bell
+  Bell,
+  Award,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNotifications } from '@/context/NotificationContext'
@@ -26,6 +27,7 @@ const menuItems = [
   { icon: Calendar, label: 'Мероприятия', path: '/cards' },
   { icon: Archive, label: 'Архив', path: '/archive' },
   { icon: BarChart3, label: 'Статистика', path: '/statistics' },
+  { icon: Award, label: 'KPI', path: '/kpi' },
   { icon: Users, label: 'Сотрудники', path: '/employees' },
   { icon: UserCheck, label: 'Замещение', path: '/delegation' },
   { icon: Bell, label: 'Уведомления', path: '/notifications' },

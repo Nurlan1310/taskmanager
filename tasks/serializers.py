@@ -9,8 +9,19 @@ from django.db.models import Q
 
 # 🔥 Импортируем все модели (включая CardApproverOrder)
 from .models import (
-    Task, EventCard, Employee, Department, Category, 
-    TaskHistory, TaskAttachment, TaskComment, Notification, FCMDevice, CardApproverOrder
+    Task,
+    EventCard,
+    Employee,
+    Department,
+    Category,
+    TaskHistory,
+    TaskAttachment,
+    TaskComment,
+    Notification,
+    FCMDevice,
+    CardApproverOrder,
+    KPIReport,
+    KPIResult,
 )
 
 # =========================================================
@@ -76,6 +87,48 @@ class TaskAttachmentSerializer(serializers.ModelSerializer):
             except:
                 return file_name
         return None
+
+
+# =========================================================
+# KPI сериализаторы
+# =========================================================
+
+
+class KPIReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = KPIReport
+        fields = [
+            "id",
+            "year",
+            "month",
+            "generated_by",
+            "generated_at",
+            "formula_version",
+            "status",
+            "message",
+        ]
+        read_only_fields = ["generated_by", "generated_at", "status", "message"]
+
+
+class KPIResultSerializer(serializers.ModelSerializer):
+    employee = EmployeeSerializer(read_only=True)
+    department = DepartmentSerializer(read_only=True)
+
+    class Meta:
+        model = KPIResult
+        fields = [
+            "id",
+            "report",
+            "employee",
+            "department",
+            "role_snapshot",
+            "score",
+            "metrics_json",
+            "breakdown_json",
+            "flags_json",
+            "created_at",
+        ]
+        read_only_fields = fields
 
 # =========================================================
 # ГЛАВНЫЙ СЕРИАЛИЗАТОР ЗАДАЧ (Исправленный)

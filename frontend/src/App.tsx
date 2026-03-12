@@ -17,6 +17,7 @@ import Cards from './pages/Cards'
 import CardDetail from './pages/CardDetail'
 import Archive from './pages/Archive'
 import Statistics from './pages/Statistics'
+import KPI from './pages/KPI'
 import Calendar from './pages/Calendar'
 import CreateTask from './pages/CreateTask'
 import EditTask from './pages/EditTask'
@@ -76,6 +77,7 @@ function App() {
             <Route path="cards/:cardId/tasks/new" element={<CreateTask />} />
             <Route path="archive" element={<Archive />} />
             <Route path="statistics" element={<Statistics />} />
+            <Route path="kpi" element={<KPI />} />
             <Route path="employees" element={<Employees />} />
             <Route path="delegation" element={<Delegation />} />
             <Route path="notifications" element={<Notifications />} />

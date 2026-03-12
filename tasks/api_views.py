@@ -12,8 +12,19 @@ from django.utils import timezone
 from datetime import timedelta, datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from .models import (
-    Task, EventCard, Employee, Category, Department, CardApproverOrder, TaskHistory, Notification,
-    TaskApprovalChain, TaskReviewChain, TaskRedirectChain
+    Task,
+    EventCard,
+    Employee,
+    Category,
+    Department,
+    CardApproverOrder,
+    TaskHistory,
+    Notification,
+    TaskApprovalChain,
+    TaskReviewChain,
+    TaskRedirectChain,
+    KPIReport,
+    KPIResult,
 )
 from django.shortcuts import get_object_or_404
 from django.db import transaction
@@ -22,9 +33,18 @@ from urllib.parse import quote
 import mimetypes
 import os
 from .serializers import (
-    TaskSerializer, EventCardSerializer, EventCardDetailSerializer,
-    EmployeeSerializer, UserSerializer, CategorySerializer, DepartmentSerializer, NotificationSerializer
+    TaskSerializer,
+    EventCardSerializer,
+    EventCardDetailSerializer,
+    EmployeeSerializer,
+    UserSerializer,
+    CategorySerializer,
+    DepartmentSerializer,
+    NotificationSerializer,
+    KPIReportSerializer,
+    KPIResultSerializer,
 )
+from .kpi_service import generate_kpi_report
 
 
 class TaskPagination(PageNumberPagination):
@@ -3277,6 +3297,196 @@ def statistics_view(request):
     }
     
     return Response(result)
+
+
+# =========================================================
+# KPI API
+# =========================================================
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def kpi_generate_report_view(request):
+    """
+    Сформировать (или пересчитать) KPI-отчет за указанный месяц.
+    Доступно только superuser.
+
+    Тело запроса (опционально):
+    - year: целое, по умолчанию текущий год
+    - month: целое 1-12, по умолчанию текущий месяц
+    """
+    user = request.user
+    if not user.is_superuser:
+        return Response(
+            {'error': 'Только администратор может формировать KPI отчет'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    now = timezone.now()
+    year = request.data.get('year') or now.year
+    month = request.data.get('month') or now.month
+
+    try:
+        year = int(year)
+        month = int(month)
+        if month < 1 or month > 12:
+            raise ValueError
+    except (TypeError, ValueError):
+        return Response(
+            {'error': 'Неверные значения year/month'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        report = generate_kpi_report(year=year, month=month, user=user)
+    except Exception as exc:
+        # Фиксируем ошибку в самом отчете, чтобы было понятно, что пошло не так
+        KPIReport.objects.filter(year=year, month=month, formula_version="v1").update(
+            status="failed",
+            message=str(exc),
+        )
+        return Response(
+            {'error': 'Ошибка формирования KPI', 'details': str(exc)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    serializer = KPIReportSerializer(report)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def kpi_results_view(request):
+    """
+    Получить KPI-результаты за месяц с учетом прав доступа.
+
+    Параметры:
+    - year: год (по умолчанию текущий)
+    - month: месяц (по умолчанию текущий)
+    - employee_id: ID сотрудника (опционально)
+    - department_id: ID отдела (опционально)
+
+    Права доступа:
+    - director / deputy: могут просматривать всех;
+    - head: только свой отдел и его сотрудников;
+    - остальные: только себя.
+    """
+    try:
+        employee = request.user.employee
+    except Employee.DoesNotExist:
+        return Response(
+            {'error': 'Employee profile not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    effective_employee = employee.get_effective_employee()
+    user_role = effective_employee.role
+    is_director_or_deputy = user_role in ('director', 'deputy')
+    is_head = user_role == 'head'
+
+    now = timezone.now()
+    year = request.query_params.get('year') or now.year
+    month = request.query_params.get('month') or now.month
+
+    try:
+        year = int(year)
+        month = int(month)
+        if month < 1 or month > 12:
+            raise ValueError
+    except (TypeError, ValueError):
+        return Response(
+            {'error': 'Неверные значения year/month'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        report = KPIReport.objects.get(year=year, month=month, formula_version="v1")
+    except KPIReport.DoesNotExist:
+        return Response(
+            {'error': 'KPI отчет за указанный месяц не найден'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    qs = KPIResult.objects.filter(report=report).select_related(
+        'employee',
+        'employee__user',
+        'employee__department',
+        'department',
+    )
+
+    employee_id = request.query_params.get('employee_id')
+    department_id = request.query_params.get('department_id')
+
+    # Проверка и применение фильтра по отделу
+    target_department = None
+    if department_id and department_id.strip():
+        try:
+            target_department = Department.objects.get(id=department_id)
+        except Department.DoesNotExist:
+            return Response(
+                {'error': 'Отдел не найден'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not is_director_or_deputy:
+            # head и обычные сотрудники могут видеть только свой отдел
+            if not effective_employee.department or target_department.id != effective_employee.department.id:
+                return Response(
+                    {'error': 'Недостаточно прав для просмотра KPI этого отдела'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        qs = qs.filter(
+            Q(department=target_department)
+            | Q(employee__department=target_department)
+        )
+    elif not is_director_or_deputy:
+        # Если отдел явно не указан, для head/обычных по умолчанию ограничиваемся их отделом
+        if effective_employee.department:
+            qs = qs.filter(
+                Q(department=effective_employee.department)
+                | Q(employee__department=effective_employee.department)
+            )
+
+    # Проверка и применение фильтра по сотруднику
+    if employee_id and employee_id.strip():
+        try:
+            target_employee = Employee.objects.get(id=employee_id)
+        except Employee.DoesNotExist:
+            return Response(
+                {'error': 'Сотрудник не найден'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not is_director_or_deputy and not is_head:
+            # Обычные сотрудники могут видеть только себя
+            if target_employee.id != effective_employee.id:
+                return Response(
+                    {'error': 'Недостаточно прав для просмотра KPI этого сотрудника'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        elif is_head:
+            # Руководитель может видеть только сотрудников своего отдела
+            if not effective_employee.department or target_employee.department != effective_employee.department:
+                return Response(
+                    {'error': 'Недостаточно прав для просмотра KPI этого сотрудника'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        qs = qs.filter(employee=target_employee)
+    else:
+        # Если сотрудник не указан:
+        if not is_director_or_deputy and not is_head:
+            # Обычный сотрудник видит только свой результат
+            qs = qs.filter(employee=effective_employee)
+
+    serializer = KPIResultSerializer(qs, many=True)
+    return Response(
+        {
+            "report": KPIReportSerializer(report).data,
+            "results": serializer.data,
+        }
+    )
 
 
 @api_view(['POST'])
