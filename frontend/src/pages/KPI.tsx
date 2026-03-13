@@ -163,12 +163,17 @@ export default function KPI() {
     `${row.employee.user.first_name} ${row.employee.user.last_name}` ||
     row.employee.user.username
 
-  const getDepartmentName = (row: KPIResult) =>
-    row.department?.shortname ||
-    row.department?.name ||
-    row.employee.department?.shortname ||
-    row.employee.department?.name ||
-    '—'
+  const getDepartmentName = (row: KPIResult) => {
+    const deptAny = row.department as any
+    const empDeptAny = row.employee.department as any
+    return (
+      deptAny?.shortname ||
+      row.department?.name ||
+      empDeptAny?.shortname ||
+      row.employee.department?.name ||
+      '—'
+    )
+  }
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
