@@ -701,13 +701,13 @@ class FCMDevice(models.Model):
 
 class KPIReport(models.Model):
     """
-    Ежемесячный отчет по KPI.
-    Хранит факт генерации и версию формулы.
+    Ежемесячный отчёт по KPI. Один отчёт на месяц.
+    Черновик — предварительная оценка; после подтверждения админом — публикация.
     """
 
     STATUS_CHOICES = [
         ("draft", "Черновик"),
-        ("completed", "Сформирован"),
+        ("published", "Опубликован"),
         ("failed", "Ошибка формирования"),
     ]
 
@@ -724,28 +724,22 @@ class KPIReport(models.Model):
     )
     generated_at = models.DateTimeField(auto_now_add=True, verbose_name="Когда сформирован")
 
-    formula_version = models.CharField(
-        max_length=20,
-        default="v1",
-        verbose_name="Версия формулы",
-        help_text="Позволяет менять формулу в будущем, не ломая старые отчеты.",
-    )
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default="completed",
-        verbose_name="Статус формирования",
+        default="draft",
+        verbose_name="Статус",
     )
     message = models.TextField(blank=True, null=True, verbose_name="Служебное сообщение / ошибка")
 
     class Meta:
         verbose_name = "KPI отчёт"
         verbose_name_plural = "KPI отчёты"
-        unique_together = ("year", "month", "formula_version")
+        unique_together = ("year", "month")
         ordering = ["-year", "-month", "-generated_at"]
 
     def __str__(self):
-        return f"KPI {self.year}-{self.month:02d} ({self.formula_version})"
+        return f"KPI {self.year}-{self.month:02d} ({self.get_status_display()})"
 
 
 class KPIResult(models.Model):

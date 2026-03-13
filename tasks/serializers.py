@@ -22,6 +22,7 @@ from .models import (
     CardApproverOrder,
     KPIReport,
     KPIResult,
+    KPIRoleConfig,
 )
 
 # =========================================================
@@ -38,7 +39,7 @@ class UserSerializer(serializers.ModelSerializer):
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Department
-        fields = ['id', 'name', 'priority']
+        fields = ['id', 'name', 'shortname', 'priority']
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
@@ -103,7 +104,6 @@ class KPIReportSerializer(serializers.ModelSerializer):
             "month",
             "generated_by",
             "generated_at",
-            "formula_version",
             "status",
             "message",
         ]
@@ -113,9 +113,6 @@ class KPIReportSerializer(serializers.ModelSerializer):
 class KPIResultSerializer(serializers.ModelSerializer):
     employee = EmployeeSerializer(read_only=True)
     department = DepartmentSerializer(read_only=True)
-    formula_version = serializers.SerializerMethodField()
-    positive_cap = serializers.SerializerMethodField()
-    penalty_factor = serializers.SerializerMethodField()
 
     class Meta:
         model = KPIResult
@@ -130,29 +127,26 @@ class KPIResultSerializer(serializers.ModelSerializer):
             "breakdown_json",
             "flags_json",
             "created_at",
-            "formula_version",
-            "positive_cap",
-            "penalty_factor",
         ]
         read_only_fields = fields
 
-    def get_formula_version(self, obj):
-        # Версия формулы берется из связанного отчета
-        return obj.report.formula_version
 
-    def get_positive_cap(self, obj):
-        """
-        Для v2 ожидаем наличие positive_cap в breakdown_json, для v1 возвращаем None.
-        """
-        breakdown = obj.breakdown_json or {}
-        return breakdown.get("positive_cap")
+class KPIRoleConfigSerializer(serializers.ModelSerializer):
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
 
-    def get_penalty_factor(self, obj):
-        """
-        Для v2 ожидаем наличие penalty_factor в breakdown_json, для v1 возвращаем None.
-        """
-        breakdown = obj.breakdown_json or {}
-        return breakdown.get("penalty_factor")
+    class Meta:
+        model = KPIRoleConfig
+        fields = [
+            "id",
+            "role",
+            "role_display",
+            "formula_version",
+            "positive_cap_max",
+            "penalty_min_factor",
+            "positive_weights",
+            "penalty_weights",
+        ]
+        read_only_fields = ["formula_version"]
 
 # =========================================================
 # ГЛАВНЫЙ СЕРИАЛИЗАТОР ЗАДАЧ (Исправленный)
@@ -205,7 +199,7 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             'id', 'title', 'description', 'status', 'status_display', 
-            'task_type', 'task_type_display', 'priority', 'priority_display', 'is_urgent',
+            'task_type', 'task_type_display', 'priority', 'priority_display', 'is_urgent', 'complexity',
             'is_according_to_plan', 'review_self', 'final_reviewer',
             'parent_task_id', 'relation_type',
             'created_at', 'due_date', 'completed_at', 'created_by', 'created_by_name',

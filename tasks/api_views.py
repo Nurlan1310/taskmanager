@@ -25,6 +25,7 @@ from .models import (
     TaskRedirectChain,
     KPIReport,
     KPIResult,
+    KPIRoleConfig,
 )
 from django.shortcuts import get_object_or_404
 from django.db import transaction
@@ -43,8 +44,9 @@ from .serializers import (
     NotificationSerializer,
     KPIReportSerializer,
     KPIResultSerializer,
+    KPIRoleConfigSerializer,
 )
-from .kpi_service import generate_kpi_report
+from .kpi_service import generate_kpi_report, publish_kpi_report
 
 
 class TaskPagination(PageNumberPagination):
@@ -91,12 +93,11 @@ def login_view(request):
     if user is not None:
         login(request, user)
         serializer = UserSerializer(user)
+        serializer_data = dict(serializer.data)
+        serializer_data['is_superuser'] = user.is_superuser
         if hasattr(user, 'employee'):
-            employee_data = EmployeeSerializer(user.employee).data
-            serializer_data = serializer.data
-            serializer_data['employee'] = employee_data
-            return Response(serializer_data)
-        return Response(serializer.data)
+            serializer_data['employee'] = EmployeeSerializer(user.employee).data
+        return Response(serializer_data)
     else:
         return Response(
             {'error': 'Неверный пароль', 'error_type': 'invalid_password'},
@@ -127,6 +128,7 @@ def me_view(request):
             'email': request.user.email,
             'first_name': request.user.first_name,
             'last_name': request.user.last_name,
+            'is_superuser': request.user.is_superuser,
             'employee': employee_data
         })
     except Employee.DoesNotExist:
@@ -136,6 +138,7 @@ def me_view(request):
             'email': request.user.email,
             'first_name': request.user.first_name,
             'last_name': request.user.last_name,
+            'is_superuser': request.user.is_superuser,
             'employee': None
         })
 
@@ -3119,7 +3122,7 @@ def statistics_view(request):
         try:
             target_department = Department.objects.get(id=department_id)
             # Руководитель и обычные сотрудники могут видеть только свой отдел
-            if not is_director_or_deputy:
+            if not can_see_all:
                 if not effective_employee.department or target_department.id != effective_employee.department.id:
                     return Response(
                         {'error': 'Недостаточно прав для просмотра статистики этого отдела'},
@@ -3308,76 +3311,58 @@ def statistics_view(request):
 @permission_classes([IsAuthenticated])
 def kpi_generate_report_view(request):
     """
-    Сформировать (или пересчитать) KPI-отчет за указанный месяц.
-    Доступно только superuser.
-
-    Тело запроса (опционально):
-    - year: целое, по умолчанию текущий год
-    - month: целое 1-12, по умолчанию текущий месяц
+    Сформировать предварительную оценку KPI за месяц (черновик).
+    Только superuser. Возвращает отчёт и результаты для превью; публикация — отдельным запросом.
     """
-    user = request.user
-    if not user.is_superuser:
+    if not request.user.is_superuser:
         return Response(
-            {'error': 'Только администратор может формировать KPI отчет'},
+            {'error': 'Только администратор может формировать KPI'},
             status=status.HTTP_403_FORBIDDEN,
         )
 
     now = timezone.now()
     year = request.data.get('year') or now.year
     month = request.data.get('month') or now.month
-    formula_version = request.data.get('formula_version') or "v1"
 
     try:
         year = int(year)
         month = int(month)
         if month < 1 or month > 12:
             raise ValueError
-        if formula_version not in ("v1", "v2"):
-            raise ValueError
     except (TypeError, ValueError):
         return Response(
-            {'error': 'Неверные значения year/month/formula_version'},
+            {'error': 'Неверные значения year/month'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     try:
-        report = generate_kpi_report(
-            year=year,
-            month=month,
-            user=user,
-            formula_version=formula_version,
-        )
+        report = generate_kpi_report(year=year, month=month, user=request.user)
     except Exception as exc:
-        # Фиксируем ошибку в самом отчете, чтобы было понятно, что пошло не так
-        KPIReport.objects.filter(year=year, month=month, formula_version=formula_version).update(
-            status="failed",
-            message=str(exc),
-        )
+        report = KPIReport.objects.filter(year=year, month=month).first()
+        if report:
+            report.status = "failed"
+            report.message = str(exc)
+            report.save(update_fields=["status", "message"])
         return Response(
             {'error': 'Ошибка формирования KPI', 'details': str(exc)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-    serializer = KPIReportSerializer(report)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    qs = KPIResult.objects.filter(report=report).select_related(
+        'employee', 'employee__user', 'employee__department', 'department',
+    )
+    return Response({
+        "report": KPIReportSerializer(report).data,
+        "results": KPIResultSerializer(qs, many=True).data,
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def kpi_results_view(request):
     """
-    Получить KPI-результаты за месяц с учетом прав доступа.
-
-    Параметры:
-    - year: год (по умолчанию текущий)
-    - month: месяц (по умолчанию текущий)
-    - employee_id: ID сотрудника (опционально)
-    - department_id: ID отдела (опционально)
-
-    Права доступа:
-    - director / deputy: могут просматривать всех;
-    - head: только свой отдел и его сотрудников;
-    - остальные: только себя.
+    KPI-результаты за месяц. Админ и директор/замы видят все оценки.
+    Черновик отображается только администратору (превью перед публикацией).
     """
     try:
         employee = request.user.employee
@@ -3389,32 +3374,37 @@ def kpi_results_view(request):
 
     effective_employee = employee.get_effective_employee()
     user_role = effective_employee.role
+    is_superuser = request.user.is_superuser
     is_director_or_deputy = user_role in ('director', 'deputy')
     is_head = user_role == 'head'
+    can_see_all = is_superuser or is_director_or_deputy
 
     now = timezone.now()
     year = request.query_params.get('year') or now.year
     month = request.query_params.get('month') or now.month
-    formula_version = request.query_params.get('formula_version') or "v1"
 
     try:
         year = int(year)
         month = int(month)
         if month < 1 or month > 12:
             raise ValueError
-        if formula_version not in ("v1", "v2"):
-            raise ValueError
     except (TypeError, ValueError):
         return Response(
-            {'error': 'Неверные значения year/month/formula_version'},
+            {'error': 'Неверные значения year/month'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     try:
-        report = KPIReport.objects.get(year=year, month=month, formula_version=formula_version)
+        report = KPIReport.objects.get(year=year, month=month)
     except KPIReport.DoesNotExist:
         return Response(
-            {'error': 'KPI отчет за указанный месяц не найден'},
+            {'error': 'KPI отчёт за указанный месяц не найден'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if report.status == "draft" and not is_superuser:
+        return Response(
+            {'error': 'Отчёт ещё не опубликован'},
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -3439,7 +3429,7 @@ def kpi_results_view(request):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if not is_director_or_deputy:
+        if not can_see_all:
             # head и обычные сотрудники могут видеть только свой отдел
             if not effective_employee.department or target_department.id != effective_employee.department.id:
                 return Response(
@@ -3451,7 +3441,7 @@ def kpi_results_view(request):
             Q(department=target_department)
             | Q(employee__department=target_department)
         )
-    elif not is_director_or_deputy:
+    elif not can_see_all:
         # Если отдел явно не указан, для head/обычных по умолчанию ограничиваемся их отделом
         if effective_employee.department:
             qs = qs.filter(
@@ -3469,7 +3459,7 @@ def kpi_results_view(request):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if not is_director_or_deputy and not is_head:
+        if not can_see_all and not is_head:
             # Обычные сотрудники могут видеть только себя
             if target_employee.id != effective_employee.id:
                 return Response(
@@ -3487,7 +3477,7 @@ def kpi_results_view(request):
         qs = qs.filter(employee=target_employee)
     else:
         # Если сотрудник не указан:
-        if not is_director_or_deputy and not is_head:
+        if not can_see_all and not is_head:
             # Обычный сотрудник видит только свой результат
             qs = qs.filter(employee=effective_employee)
 
@@ -3498,6 +3488,153 @@ def kpi_results_view(request):
             "results": serializer.data,
         }
     )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def kpi_publish_report_view(request, report_id):
+    """Опубликовать черновик KPI-отчёта. Только superuser."""
+    if not request.user.is_superuser:
+        return Response(
+            {'error': 'Только администратор может публиковать KPI'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    report = get_object_or_404(KPIReport, id=report_id)
+    if report.status != "draft":
+        return Response(
+            {'error': 'Опубликовать можно только черновик'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        publish_kpi_report(report)
+    except ValueError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(KPIReportSerializer(report).data, status=status.HTTP_200_OK)
+
+
+# =========================================================
+# KPI: управление весами блоков по ролям
+# =========================================================
+
+KPI_WEIGHT_ROLES = [r[0] for r in Employee.ROLE_CHOICES]
+
+
+def _default_role_weights() -> dict:
+    """
+    Базовые веса блоков, если для роли нет KPIRoleConfig.
+    Значения должны совпадать с DEFAULT_COMPONENT_WEIGHTS в kpi_service.
+    """
+    return {
+        "timeliness": 30.0,
+        "completion": 25.0,
+        "workload": 20.0,
+        "reliability": 15.0,
+        "management": 10.0,
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def kpi_weights_list_view(request):
+    """
+    Список весов KPI по ролям.
+    Для каждой роли возвращает positive_weights; при отсутствии записи — дефолт.
+    """
+    configs = {
+        cfg.role: cfg
+        for cfg in KPIRoleConfig.objects.filter(formula_version='v2')
+    }
+    out = []
+    role_display_map = dict(Employee.ROLE_CHOICES)
+    for role in KPI_WEIGHT_ROLES:
+        cfg = configs.get(role)
+        if cfg:
+            data = KPIRoleConfigSerializer(cfg).data
+            if not data.get("positive_weights"):
+                data["positive_weights"] = _default_role_weights()
+        else:
+            data = {
+                "id": None,
+                "role": role,
+                "role_display": role_display_map.get(role, role),
+                "formula_version": "v2",
+                "positive_cap_max": "100.00",
+                "penalty_min_factor": "0.60",
+                "positive_weights": _default_role_weights(),
+                "penalty_weights": {},
+            }
+        out.append(data)
+    return Response(out)
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def kpi_weights_detail_view(request, role):
+    """
+    GET: вернуть веса для роли (positive_weights), при отсутствии — дефолт.
+    PUT: сохранить positive_weights для роли (только superuser).
+    """
+    if role not in KPI_WEIGHT_ROLES:
+        return Response(
+            {'error': 'Неверная роль'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if request.method == 'GET':
+        cfg = KPIRoleConfig.objects.filter(role=role, formula_version='v2').first()
+        if cfg:
+            data = KPIRoleConfigSerializer(cfg).data
+            if not data.get("positive_weights"):
+                data["positive_weights"] = _default_role_weights()
+            return Response(data)
+        return Response({
+            "id": None,
+            "role": role,
+            "role_display": dict(Employee.ROLE_CHOICES).get(role, role),
+            "formula_version": "v2",
+            "positive_cap_max": "100.00",
+            "penalty_min_factor": "0.60",
+            "positive_weights": _default_role_weights(),
+            "penalty_weights": {},
+        })
+
+    # PUT
+    if not request.user.is_superuser:
+        return Response(
+            {'error': 'Только администратор может изменять настройки KPI'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    positive_weights = request.data.get("positive_weights") or {}
+    if not isinstance(positive_weights, dict):
+        return Response(
+            {'error': 'positive_weights должен быть объектом'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Оставляем только известные ключи
+    cleaned = {}
+    for key in _default_role_weights().keys():
+        if key in positive_weights:
+            try:
+                cleaned[key] = float(positive_weights[key])
+            except (TypeError, ValueError):
+                pass
+
+    cfg, _created = KPIRoleConfig.objects.get_or_create(
+        role=role,
+        formula_version='v2',
+        defaults={
+            "positive_cap_max": 100.0,
+            "penalty_min_factor": 0.60,
+            "positive_weights": cleaned or _default_role_weights(),
+        },
+    )
+    if not _created:
+        cfg.positive_weights = cleaned or _default_role_weights()
+        cfg.save(update_fields=["positive_weights"])
+
+    return Response(KPIRoleConfigSerializer(cfg).data)
 
 
 @api_view(['POST'])

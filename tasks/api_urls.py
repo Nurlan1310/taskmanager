@@ -39,7 +39,10 @@ urlpatterns = [
     path('statistics/', api_views.statistics_view, name='api-statistics'),
     # KPI
     path('kpi/reports/generate/', api_views.kpi_generate_report_view, name='api-kpi-generate'),
+    path('kpi/reports/<int:report_id>/publish/', api_views.kpi_publish_report_view, name='api-kpi-publish'),
     path('kpi/results/', api_views.kpi_results_view, name='api-kpi-results'),
+    path('kpi/weights/', api_views.kpi_weights_list_view, name='api-kpi-weights-list'),
+    path('kpi/weights/<str:role>/', api_views.kpi_weights_detail_view, name='api-kpi-weights-detail'),
     # Уведомления - специфичные маршруты должны идти перед общими
     path('notifications/mark-all-read/', api_views.notifications_mark_all_read_view, name='api-notifications-mark-all-read'),
     path('notifications/delete-read/', api_views.notifications_delete_read_view, name='api-notifications-delete-read'),
