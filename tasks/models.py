@@ -334,6 +334,20 @@ class Task(models.Model):
     cc = models.ManyToManyField('Employee', blank=True, related_name="cc_tasks", verbose_name="Для ознакомления")
     # 👇 Новое поле — кому направлена задача
     recipients = models.ManyToManyField('Employee', blank=True, related_name="received_tasks", verbose_name="Адресаты")
+    # Явная оценка сложности задачи (переход от derived_complexity к явной)
+    COMPLEXITY_CHOICES = [
+        ("low", "Низкая"),
+        ("medium", "Средняя"),
+        ("high", "Высокая"),
+    ]
+    complexity = models.CharField(
+        max_length=20,
+        choices=COMPLEXITY_CHOICES,
+        blank=True,
+        null=True,
+        verbose_name="Сложность задачи",
+        help_text="Заполняется руководителем/инициатором; при отсутствии используется вычисляемая сложность в KPI v2.",
+    )
     due_date = models.DateTimeField(null=True, blank=True)
     google_drive_link = models.URLField(blank=True, null=True, verbose_name="Ссылка на Google Диск")
     attachment = models.FileField(upload_to="tasks/files/", blank=True, null=True, verbose_name="Вложение")
@@ -805,3 +819,67 @@ class KPIResult(models.Model):
 
     def __str__(self):
         return f"{self.employee.full_name} — {self.score} баллов в {self.report}"
+
+
+class KPIRoleConfig(models.Model):
+    """
+    Конфигурация формулы KPI для конкретной роли и версии формулы.
+
+    Используется в KPI v2 для задания:
+    - максимального позитивного потолка (positive_cap_max);
+    - минимального коэффициента после штрафов (penalty_min_factor);
+    - весов позитивных и негативных блоков (JSON).
+    """
+
+    FORMULA_VERSION_CHOICES = [
+        ("v1", "Формула v1 (наследие)"),
+        ("v2", "Формула v2 (расширенная)"),
+    ]
+
+    role = models.CharField(
+        max_length=20,
+        choices=Employee.ROLE_CHOICES,
+        verbose_name="Роль",
+    )
+    formula_version = models.CharField(
+        max_length=20,
+        choices=FORMULA_VERSION_CHOICES,
+        default="v2",
+        verbose_name="Версия формулы",
+    )
+
+    positive_cap_max = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=100.0,
+        verbose_name="Максимальный позитивный потолок",
+        help_text="Ограничение итогового позитивного балла перед применением штрафов.",
+    )
+    penalty_min_factor = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=0.60,
+        verbose_name="Минимальный коэффициент после штрафов",
+        help_text="Например, 0.60 означает, что суммарные штрафы не могут снизить балл более чем на 40%.",
+    )
+
+    positive_weights = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Веса позитивных блоков",
+        help_text="Например: {'workload_volume': 0.4, 'quality': 0.3, 'timeliness': 0.3}.",
+    )
+    penalty_weights = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Веса штрафов",
+        help_text="Например: {'overdue_ratio': 0.4, 'rejected_ratio': 0.3, 'urgent_miss_ratio': 0.3}.",
+    )
+
+    class Meta:
+        verbose_name = "KPI конфигурация роли"
+        verbose_name_plural = "KPI конфигурации ролей"
+        unique_together = ("role", "formula_version")
+
+    def __str__(self):
+        return f"{self.get_role_display()} — {self.formula_version}"

@@ -113,6 +113,9 @@ class KPIReportSerializer(serializers.ModelSerializer):
 class KPIResultSerializer(serializers.ModelSerializer):
     employee = EmployeeSerializer(read_only=True)
     department = DepartmentSerializer(read_only=True)
+    formula_version = serializers.SerializerMethodField()
+    positive_cap = serializers.SerializerMethodField()
+    penalty_factor = serializers.SerializerMethodField()
 
     class Meta:
         model = KPIResult
@@ -127,8 +130,29 @@ class KPIResultSerializer(serializers.ModelSerializer):
             "breakdown_json",
             "flags_json",
             "created_at",
+            "formula_version",
+            "positive_cap",
+            "penalty_factor",
         ]
         read_only_fields = fields
+
+    def get_formula_version(self, obj):
+        # Версия формулы берется из связанного отчета
+        return obj.report.formula_version
+
+    def get_positive_cap(self, obj):
+        """
+        Для v2 ожидаем наличие positive_cap в breakdown_json, для v1 возвращаем None.
+        """
+        breakdown = obj.breakdown_json or {}
+        return breakdown.get("positive_cap")
+
+    def get_penalty_factor(self, obj):
+        """
+        Для v2 ожидаем наличие penalty_factor в breakdown_json, для v1 возвращаем None.
+        """
+        breakdown = obj.breakdown_json or {}
+        return breakdown.get("penalty_factor")
 
 # =========================================================
 # ГЛАВНЫЙ СЕРИАЛИЗАТОР ЗАДАЧ (Исправленный)
@@ -157,6 +181,7 @@ class TaskSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     priority_display = serializers.CharField(source="get_priority_display", read_only=True)
     is_urgent = serializers.BooleanField(read_only=True)
+    complexity = serializers.CharField(read_only=True)
 
     history = TaskHistorySerializer(many=True, read_only=True)
     attachments = serializers.SerializerMethodField()

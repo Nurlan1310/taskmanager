@@ -3325,23 +3325,31 @@ def kpi_generate_report_view(request):
     now = timezone.now()
     year = request.data.get('year') or now.year
     month = request.data.get('month') or now.month
+    formula_version = request.data.get('formula_version') or "v1"
 
     try:
         year = int(year)
         month = int(month)
         if month < 1 or month > 12:
             raise ValueError
+        if formula_version not in ("v1", "v2"):
+            raise ValueError
     except (TypeError, ValueError):
         return Response(
-            {'error': 'Неверные значения year/month'},
+            {'error': 'Неверные значения year/month/formula_version'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     try:
-        report = generate_kpi_report(year=year, month=month, user=user)
+        report = generate_kpi_report(
+            year=year,
+            month=month,
+            user=user,
+            formula_version=formula_version,
+        )
     except Exception as exc:
         # Фиксируем ошибку в самом отчете, чтобы было понятно, что пошло не так
-        KPIReport.objects.filter(year=year, month=month, formula_version="v1").update(
+        KPIReport.objects.filter(year=year, month=month, formula_version=formula_version).update(
             status="failed",
             message=str(exc),
         )
@@ -3387,20 +3395,23 @@ def kpi_results_view(request):
     now = timezone.now()
     year = request.query_params.get('year') or now.year
     month = request.query_params.get('month') or now.month
+    formula_version = request.query_params.get('formula_version') or "v1"
 
     try:
         year = int(year)
         month = int(month)
         if month < 1 or month > 12:
             raise ValueError
+        if formula_version not in ("v1", "v2"):
+            raise ValueError
     except (TypeError, ValueError):
         return Response(
-            {'error': 'Неверные значения year/month'},
+            {'error': 'Неверные значения year/month/formula_version'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     try:
-        report = KPIReport.objects.get(year=year, month=month, formula_version="v1")
+        report = KPIReport.objects.get(year=year, month=month, formula_version=formula_version)
     except KPIReport.DoesNotExist:
         return Response(
             {'error': 'KPI отчет за указанный месяц не найден'},

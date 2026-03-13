@@ -15,6 +15,7 @@ from .models import (
     TaskHistory,
     KPIReport,
     KPIResult,
+    KPIRoleConfig,
 )
 
 
@@ -431,7 +432,7 @@ def _calc_director_deputy_kpi(
     return round(breakdown.total(), 2), metrics, {**asdict(breakdown), "flags": flags}
 
 
-def calculate_employee_kpi(
+def _calculate_employee_kpi_v1(
     employee: Employee, year: int, month: int
 ) -> Tuple[float, Dict, Dict]:
     """
@@ -454,17 +455,201 @@ def calculate_employee_kpi(
     return _calc_staff_senior_kpi(employee, month_tasks, start, end)
 
 
+def _get_role_config(role: str, formula_version: str) -> KPIRoleConfig | None:
+    """
+    Вернуть конфигурацию KPI для роли и версии формулы, если она есть.
+    При отсутствии — None, тогда используются дефолтные параметры в коде.
+    """
+    try:
+        return KPIRoleConfig.objects.get(role=role, formula_version=formula_version)
+    except KPIRoleConfig.DoesNotExist:
+        return None
+
+
+def _compute_penalty_factor_for_staff_senior(metrics: Dict, role_cfg: KPIRoleConfig | None) -> float:
+    """
+    Рассчитать коэффициент штрафов для исполнителей (staff/senior).
+
+    Логика:
+    - штрафуют:
+      * доля просроченных задач на конец месяца;
+      * доля задач с reject/revision среди взятых;
+      * доля просроченных срочных задач;
+    - суммарный штраф ограничен так, чтобы коэффициент не опускался ниже penalty_min_factor.
+    """
+    with_due = max(1, metrics.get("with_due") or 0)
+    overdue = metrics.get("overdue_at_month_end") or 0
+    taken_count = max(1, metrics.get("taken_count") or 0)
+    rejected_count = metrics.get("rejected_or_revision_tasks") or 0
+    urgent_total = metrics.get("urgent_total") or 0
+    urgent_on_time = metrics.get("urgent_on_time") or 0
+
+    overdue_ratio = min(1.0, overdue / with_due) if with_due > 0 else 0.0
+    rejected_ratio = min(1.0, rejected_count / taken_count) if taken_count > 0 else 0.0
+    urgent_miss_ratio = 0.0
+    if urgent_total > 0:
+        urgent_miss_ratio = 1.0 - min(1.0, urgent_on_time / urgent_total)
+
+    # Дефолтные веса, если в конфиге не задано иное
+    weights = {
+        "overdue_ratio": 0.4,
+        "rejected_ratio": 0.3,
+        "urgent_miss_ratio": 0.3,
+    }
+    if role_cfg and role_cfg.penalty_weights:
+        weights.update(role_cfg.penalty_weights)
+
+    penalty = (
+        weights.get("overdue_ratio", 0.4) * overdue_ratio
+        + weights.get("rejected_ratio", 0.3) * rejected_ratio
+        + weights.get("urgent_miss_ratio", 0.3) * urgent_miss_ratio
+    )
+
+    # Суммарный штраф ограничиваем максимумом в 1.0 (100%), а затем минимальным коэффициентом
+    penalty = max(0.0, min(1.0, penalty))
+
+    min_factor = float(role_cfg.penalty_min_factor) if role_cfg else 0.60
+    min_factor = max(0.0, min(1.0, min_factor))
+
+    factor = 1.0 - penalty
+    if factor < min_factor:
+        factor = min_factor
+    return factor
+
+
+def _compute_penalty_factor_for_head(metrics: Dict, role_cfg: KPIRoleConfig | None) -> float:
+    """
+    Штрафы для руководителя отдела: доля просроченных задач отдела.
+    """
+    with_due = max(1, metrics.get("department", {}).get("dept_with_due") or 0)
+    overdue = metrics.get("department", {}).get("dept_overdue_at_month_end") or 0
+    overdue_ratio = min(1.0, overdue / with_due) if with_due > 0 else 0.0
+
+    penalty = overdue_ratio  # базово: до 100% штраф при полном хвосте
+    penalty = max(0.0, min(1.0, penalty))
+
+    min_factor = float(role_cfg.penalty_min_factor) if role_cfg else 0.60
+    min_factor = max(0.0, min(1.0, min_factor))
+
+    factor = 1.0 - penalty
+    if factor < min_factor:
+        factor = min_factor
+    return factor
+
+
+def _compute_penalty_factor_for_director_deputy(metrics: Dict, role_cfg: KPIRoleConfig | None) -> float:
+    """
+    Штрафы для директора/заместителя: доля висящих служебных задач и доля медленных решений.
+    """
+    total_approval = max(1, metrics.get("total_approval_like") or 0)
+    decided_count = metrics.get("decided_count") or 0
+    slow_decisions = metrics.get("slow_decisions") or 0
+    hanging = metrics.get("hanging") or 0
+
+    backlog_ratio = min(1.0, hanging / total_approval)
+    slow_ratio = min(1.0, slow_decisions / max(1, decided_count)) if decided_count > 0 else 0.0
+
+    penalty = 0.6 * backlog_ratio + 0.4 * slow_ratio
+    penalty = max(0.0, min(1.0, penalty))
+
+    min_factor = float(role_cfg.penalty_min_factor) if role_cfg else 0.60
+    min_factor = max(0.0, min(1.0, min_factor))
+
+    factor = 1.0 - penalty
+    if factor < min_factor:
+        factor = min_factor
+    return factor
+
+
+def _compute_penalty_factor(role: str, metrics: Dict, role_cfg: KPIRoleConfig | None) -> float:
+    """
+    Унифицированный вход для расчёта коэффициента штрафов по роли.
+    """
+    if role in ("staff", "senior"):
+        return _compute_penalty_factor_for_staff_senior(metrics, role_cfg)
+    if role == "head":
+        return _compute_penalty_factor_for_head(metrics, role_cfg)
+    if role in ("director", "deputy"):
+        return _compute_penalty_factor_for_director_deputy(metrics, role_cfg)
+
+    # Fallback — как у исполнителей
+    return _compute_penalty_factor_for_staff_senior(metrics, role_cfg)
+
+
+def calculate_employee_kpi(
+    employee: Employee,
+    year: int,
+    month: int,
+    formula_version: str = "v1",
+) -> Tuple[float, Dict, Dict]:
+    """
+    Центральная точка расчета KPI по одному сотруднику за месяц (v1/v2).
+
+    formula_version:
+    - v1 — использовать историческую формулу и структуру breakdown;
+    - v2 — использовать двухэтажную схему: positive_cap * penalty_factor.
+    """
+    base_score, metrics, breakdown = _calculate_employee_kpi_v1(employee, year, month)
+
+    if formula_version == "v1":
+        return base_score, metrics, breakdown
+
+    # v2: positive_cap и penalty_factor поверх v1-метрик
+    role = employee.role
+    role_cfg = _get_role_config(role, formula_version="v2")
+
+    # Позитивный потолок — сумма компонент breakdown, ограниченная positive_cap_max
+    positive_cap_raw = float(
+        breakdown.get("timeliness", 0.0)
+        + breakdown.get("completion", 0.0)
+        + breakdown.get("workload", 0.0)
+        + breakdown.get("reliability", 0.0)
+        + breakdown.get("management", 0.0)
+    )
+
+    positive_cap_max = float(role_cfg.positive_cap_max) if role_cfg else 100.0
+    positive_cap = max(0.0, min(positive_cap_max, positive_cap_raw))
+
+    penalty_factor = _compute_penalty_factor(role, metrics, role_cfg)
+    final_score = round(positive_cap * penalty_factor, 2)
+
+    # Расширяем метрики и разложение для аналитики
+    extended_metrics = {
+        **metrics,
+        "v1_score": base_score,
+        "positive_cap": positive_cap,
+        "penalty_factor": penalty_factor,
+        "formula_version": "v2",
+    }
+    extended_breakdown = {
+        **breakdown,
+        "positive_cap": round(positive_cap, 2),
+        "penalty_factor": round(penalty_factor, 2),
+        "v1_score": base_score,
+    }
+
+    return final_score, extended_metrics, extended_breakdown
+
+
 @transaction.atomic
-def generate_kpi_report(year: int, month: int, user: User) -> KPIReport:
+def generate_kpi_report(
+    year: int,
+    month: int,
+    user: User,
+    formula_version: str = "v1",
+) -> KPIReport:
     """
     Сформировать (или пересчитать) KPI-отчет за месяц.
     - Создает/обновляет KPIReport.
     - Удаляет старые KPIResult этого отчета и пересчитывает заново.
     """
+    if formula_version not in ("v1", "v2"):
+        raise ValueError("Unsupported KPI formula_version: %s" % formula_version)
+
     report, created = KPIReport.objects.get_or_create(
         year=year,
         month=month,
-        formula_version="v1",
+        formula_version=formula_version,
         defaults={
             "generated_by": user,
             "status": "draft",
@@ -489,7 +674,12 @@ def generate_kpi_report(year: int, month: int, user: User) -> KPIReport:
     )
 
     for employee in employees_with_tasks:
-        score, metrics, breakdown = calculate_employee_kpi(employee, year, month)
+        score, metrics, breakdown = calculate_employee_kpi(
+            employee=employee,
+            year=year,
+            month=month,
+            formula_version=formula_version,
+        )
 
         KPIResult.objects.create(
             report=report,
